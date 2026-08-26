@@ -1,0 +1,6 @@
+{
+  "name": "Bangladesh Bus Live",
+  "description": "বাংলাদেশের বিভিন্ন রুটে চলাচলকারী বাসের রিয়েল-টাইম লাইভ জিপিএস লোকেশন ট্র্যাকিং ও ব্রডকাস্টিং প্ল্যাটফর্ম - Developed by Nazmul IT",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
