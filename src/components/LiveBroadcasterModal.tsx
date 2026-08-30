@@ -11,6 +11,11 @@ import {
 } from '../data/bangladeshRoutes';
 import { LiveBusSession } from '../types';
 import {
+  startBroadcastSession,
+  updateBroadcastLocation,
+  stopBroadcastSession
+} from '../services/busService';
+import {
   X,
   Radio,
   MapPin,
@@ -276,10 +281,8 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
         ? deviceSessionIdRef.current()
         : deviceSessionIdRef.current;
 
-    const response = await fetch('/api/buses/start-broadcast', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      const newSession = await startBroadcastSession({
         companyId: resolvedCompanyId,
         companyName: finalCompanyName,
         busNumber: finalBusNum,
@@ -299,26 +302,20 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
         accuracy: Math.round(accuracy),
         speed: speed || 0,
         heading: heading || 0
-      })
-    });
+      });
 
-    const result = await response.json();
+      onSessionStart(newSession);
+      setIsStarting(false);
+      setGpsStatus('active');
+      setChatHeadWarning(false);
 
-    if (!response.ok) {
-      setErrorMsg(result.message || 'লাইভ ট্র্যাকিং শুরু করা সম্ভব হয়নি।');
+      // Start continuous Geolocation Watch
+      startContinuousWatch(newSession.id);
+    } catch (err: any) {
+      setErrorMsg('লাইভ ট্র্যাকিং শুরু করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
       setIsStarting(false);
       setGpsStatus('error');
-      return;
     }
-
-    const newSession: LiveBusSession = result.session;
-    onSessionStart(newSession);
-    setIsStarting(false);
-    setGpsStatus('active');
-    setChatHeadWarning(false);
-
-    // Start continuous Geolocation Watch
-    startContinuousWatch(newSession.id);
   };
 
   // Handle GPS Start button
@@ -428,22 +425,18 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
         });
 
         try {
-          await fetch('/api/buses/update-location', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId,
-              deviceSessionId: deviceId,
-              lat: latitude,
-              lng: longitude,
-              accuracy: Math.round(accuracy),
-              speed: currentSpeed,
-              heading: heading || 0,
-              timestamp: Date.now()
-            })
+          await updateBroadcastLocation({
+            sessionId,
+            deviceSessionId: deviceId,
+            lat: latitude,
+            lng: longitude,
+            accuracy: Math.round(accuracy),
+            speed: currentSpeed,
+            heading: heading || 0,
+            timestamp: Date.now()
           });
         } catch (e) {
-          console.error('Failed to sync location to backend', e);
+          console.error('Failed to sync location', e);
         }
       },
       (err) => {
@@ -471,14 +464,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
             ? deviceSessionIdRef.current()
             : deviceSessionIdRef.current;
 
-        await fetch('/api/buses/stop-broadcast', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionId: activeSession.id,
-            deviceSessionId: deviceId
-          })
-        });
+        await stopBroadcastSession(activeSession.id, deviceId);
       } catch (e) {
         console.error('Stop broadcast error:', e);
       }

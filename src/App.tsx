@@ -12,6 +12,7 @@ import { LiveBroadcasterModal } from './components/LiveBroadcasterModal';
 import { LiveMapModal } from './components/LiveMapModal';
 import { Footer } from './components/Footer';
 import { LiveBusSession } from './types';
+import { fetchLiveBuses } from './services/busService';
 import { Radio, RefreshCw, Bus, AlertCircle, Sparkles, MapPin } from 'lucide-react';
 
 export default function App() {
@@ -39,13 +40,8 @@ export default function App() {
   // Fetch all active buses
   const fetchActiveBuses = async () => {
     try {
-      const res = await fetch('/api/buses/live');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.buses && Array.isArray(data.buses)) {
-          setBuses(data.buses);
-        }
-      }
+      const activeBuses = await fetchLiveBuses();
+      setBuses(activeBuses);
     } catch (e) {
       console.warn('Live API sync notice.');
     } finally {
@@ -53,9 +49,17 @@ export default function App() {
     }
   };
 
-  // Real-time updates via Server-Sent Events (SSE) + fallback polling
+  // Real-time updates via SSE + local event listeners
   useEffect(() => {
     fetchActiveBuses();
+
+    const handleLocalUpdate = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setBuses(e.detail);
+      }
+    };
+
+    window.addEventListener('bbl_local_buses_updated', handleLocalUpdate);
 
     let eventSource: EventSource | null = null;
     try {
@@ -129,6 +133,7 @@ export default function App() {
     const interval = setInterval(fetchActiveBuses, 5000);
 
     return () => {
+      window.removeEventListener('bbl_local_buses_updated', handleLocalUpdate);
       if (eventSource) {
         eventSource.close();
       }
