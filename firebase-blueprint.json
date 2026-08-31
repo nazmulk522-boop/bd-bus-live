@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "LiveBus": {
+      "title": "LiveBus",
+      "description": "Real-time active bus live location session broadcasted by passenger or bus staff",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "busNumber": { "type": "string" },
+        "companyId": { "type": "string" },
+        "companyName": { "type": "string" },
+        "companyNameBn": { "type": "string" },
+        "routeId": { "type": "string" },
+        "routeName": { "type": "string" },
+        "routeNameBn": { "type": "string" },
+        "originBn": { "type": "string" },
+        "destinationBn": { "type": "string" },
+        "originLat": { "type": "number" },
+        "originLng": { "type": "number" },
+        "destinationLat": { "type": "number" },
+        "destinationLng": { "type": "number" },
+        "routeColor": { "type": "string" },
+        "currentLat": { "type": "number" },
+        "currentLng": { "type": "number" },
+        "accuracy": { "type": "number" },
+        "speed": { "type": "number" },
+        "heading": { "type": "number" },
+        "currentLocationName": { "type": "string" },
+        "currentLocationNameBn": { "type": "string" },
+        "nextCheckpoint": { "type": "string" },
+        "destinationEta": { "type": "string" },
+        "status": { "type": "string" },
+        "startedAt": { "type": "number" },
+        "lastUpdated": { "type": "number" },
+        "deviceSessionId": { "type": "string" }
+      },
+      "required": ["id", "busNumber", "companyName", "currentLat", "currentLng", "lastUpdated"]
+    }
+  },
+  "firestore": {
+    "live_buses/{busId}": {
+      "schema": { "$ref": "#/entities/LiveBus" },
+      "description": "Active real-time broadcasted bus GPS sessions"
+    }
+  }
+}

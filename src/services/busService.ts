@@ -3,11 +3,22 @@ import {
   BUS_COMPANIES,
   resolveLocationAndETA
 } from '../data/bangladeshRoutes';
+import { db } from '../lib/firebase';
+import {
+  collection,
+  doc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  getDocs
+} from 'firebase/firestore';
 
+const COLLECTION_NAME = 'live_buses';
 const LOCAL_STORAGE_KEY = 'bbl_active_live_buses';
 const BROADCAST_CHANNEL_NAME = 'bbl_bus_live_channel';
 
-// Helper for multi-tab / local synchronization
+// Helper for multi-tab synchronization
 let broadcastChannel: BroadcastChannel | null = null;
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -17,13 +28,25 @@ try {
   console.warn('BroadcastChannel not supported');
 }
 
+/**
+ * Strips undefined properties so Firestore doesn't reject document writes
+ */
+function sanitizeForFirestore(obj: any): any {
+  const result: any = {};
+  for (const key of Object.keys(obj)) {
+    if (obj[key] !== undefined) {
+      result[key] = obj[key];
+    }
+  }
+  return result;
+}
+
 export function getLocalLiveBuses(): LiveBusSession[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!raw) return [];
     const list: LiveBusSession[] = JSON.parse(raw);
     const now = Date.now();
-    // Filter out sessions older than 30 minutes
     return list.filter((b) => now - b.lastUpdated < 30 * 60 * 1000);
   } catch {
     return [];
@@ -60,9 +83,7 @@ export function removeLocalBusSession(sessionId: string) {
 }
 
 /**
- * Safely starts a broadcast session.
- * Tries server API first; if server returns HTML (e.g. Vercel static) or fails,
- * creates a fully functional client-side session seamlessly.
+ * Starts a live broadcast session and saves it to Firestore Cloud DB + Local Cache
  */
 export async function startBroadcastSession(payload: {
   companyId: string;
@@ -102,8 +123,10 @@ export async function startBroadcastSession(payload: {
     payload.speed
   );
 
-  const fallbackSession: LiveBusSession = {
-    id: `live-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+  const sessionId = `bus-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  const newSession: LiveBusSession = {
+    id: sessionId,
     busNumber: payload.busNumber,
     companyId: payload.companyId,
     companyName: payload.companyName,
@@ -134,32 +157,34 @@ export async function startBroadcastSession(payload: {
     deviceSessionId: payload.deviceSessionId
   };
 
-  try {
-    const response = await fetch('/api/buses/start-broadcast', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+  // 1. Immediately store in local cache so current user sees it without delay
+  upsertLocalBusSession(newSession);
 
-    const contentType = response.headers.get('content-type') || '';
-    if (response.ok && contentType.includes('application/json')) {
-      const result = await response.json();
-      if (result.session) {
-        upsertLocalBusSession(result.session);
-        return result.session;
-      }
-    }
+  // 2. Publish to Firebase Firestore cloud database (visible to all users across all browsers & devices)
+  try {
+    const docRef = doc(db, COLLECTION_NAME, sessionId);
+    const sanitized = sanitizeForFirestore(newSession);
+    await setDoc(docRef, sanitized);
   } catch (err) {
-    console.warn('Server API unavailable, falling back to local live broadcast mode:', err);
+    console.error('Firestore cloud broadcast error:', err);
   }
 
-  // Save to local store so it appears in UI immediately
-  upsertLocalBusSession(fallbackSession);
-  return fallbackSession;
+  // 3. Also notify Express backend if running in fullstack mode
+  try {
+    await fetch('/api/buses/start-broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, sessionId })
+    });
+  } catch {
+    // Expected on static hosting
+  }
+
+  return newSession;
 }
 
 /**
- * Updates a live broadcast session location.
+ * Updates a live broadcast session location across Cloud & Local
  */
 export async function updateBroadcastLocation(payload: {
   sessionId: string;
@@ -171,11 +196,12 @@ export async function updateBroadcastLocation(payload: {
   heading: number;
   timestamp: number;
 }) {
-  // Update local session
   const localBuses = getLocalLiveBuses();
   const existing = localBuses.find((b) => b.id === payload.sessionId);
+  
+  let resolved: any = { locationNameEn: '', locationNameBn: '', nextCheckpoint: '', destinationEta: '' };
   if (existing) {
-    const resolved = resolveLocationAndETA(
+    resolved = resolveLocationAndETA(
       payload.lat,
       payload.lng,
       existing.routeId,
@@ -199,26 +225,52 @@ export async function updateBroadcastLocation(payload: {
     upsertLocalBusSession(updated);
   }
 
+  // Sync to Firestore Cloud DB
   try {
-    const res = await fetch('/api/buses/update-location', {
+    const docRef = doc(db, COLLECTION_NAME, payload.sessionId);
+    const updateData = sanitizeForFirestore({
+      currentLat: payload.lat,
+      currentLng: payload.lng,
+      accuracy: payload.accuracy,
+      speed: payload.speed,
+      heading: payload.heading,
+      currentLocationName: resolved.locationNameEn,
+      currentLocationNameBn: resolved.locationNameBn,
+      nextCheckpoint: resolved.nextCheckpoint,
+      destinationEta: resolved.destinationEta,
+      status: 'live',
+      lastUpdated: payload.timestamp || Date.now()
+    });
+    await updateDoc(docRef, updateData);
+  } catch (err) {
+    console.error('Firestore location sync error:', err);
+  }
+
+  // Also sync to backend API if available
+  try {
+    await fetch('/api/buses/update-location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    // Safely ignore non-JSON or HTML
-    if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) {
-      await res.json();
-    }
-  } catch (e) {
+  } catch {
     // Expected on static hosting
   }
 }
 
 /**
- * Stops a live broadcast session.
+ * Stops a live broadcast session
  */
 export async function stopBroadcastSession(sessionId: string, deviceSessionId: string) {
   removeLocalBusSession(sessionId);
+
+  // Remove / Mark offline in Firestore Cloud DB
+  try {
+    const docRef = doc(db, COLLECTION_NAME, sessionId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('Firestore stop session error:', err);
+  }
 
   try {
     await fetch('/api/buses/stop-broadcast', {
@@ -226,35 +278,94 @@ export async function stopBroadcastSession(sessionId: string, deviceSessionId: s
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, deviceSessionId })
     });
-  } catch (e) {
+  } catch {
     // Expected on static hosting
   }
 }
 
 /**
- * Fetches all live buses from server and merges with local live buses.
+ * Subscribes to real-time live bus updates from Firebase Cloud Firestore.
+ * Automatically triggers callback whenever any bus in the world is added, updated, or stopped!
+ */
+export function subscribeToLiveBuses(onUpdate: (buses: LiveBusSession[]) => void): () => void {
+  try {
+    const colRef = collection(db, COLLECTION_NAME);
+    const unsubscribe = onSnapshot(
+      colRef,
+      (snapshot) => {
+        const now = Date.now();
+        const firestoreBuses: LiveBusSession[] = [];
+
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as LiveBusSession;
+          // Filter out stale sessions older than 25 minutes
+          if (data && now - (data.lastUpdated || 0) < 25 * 60 * 1000) {
+            firestoreBuses.push({
+              ...data,
+              id: docSnap.id
+            });
+          }
+        });
+
+        // Merge with local buses
+        const localBuses = getLocalLiveBuses();
+        const map = new Map<string, LiveBusSession>();
+        firestoreBuses.forEach((b) => map.set(b.id, b));
+        localBuses.forEach((b) => {
+          if (!map.has(b.id)) {
+            map.set(b.id, b);
+          }
+        });
+
+        const merged = Array.from(map.values()).sort((a, b) => b.lastUpdated - a.lastUpdated);
+        onUpdate(merged);
+      },
+      (error) => {
+        console.warn('Firestore real-time subscription error, using local/polling fallback:', error);
+        // Fallback to local buses
+        onUpdate(getLocalLiveBuses());
+      }
+    );
+
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Could not establish Firestore subscription:', err);
+    onUpdate(getLocalLiveBuses());
+    return () => {};
+  }
+}
+
+/**
+ * Fetches all live buses (One-time fetch)
  */
 export async function fetchLiveBuses(): Promise<LiveBusSession[]> {
   const localBuses = getLocalLiveBuses();
-  let serverBuses: LiveBusSession[] = [];
+  let firestoreBuses: LiveBusSession[] = [];
 
   try {
-    const res = await fetch('/api/buses/live');
-    const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
-      const data = await res.json();
-      if (data.buses && Array.isArray(data.buses)) {
-        serverBuses = data.buses;
+    const colRef = collection(db, COLLECTION_NAME);
+    const snapshot = await getDocs(colRef);
+    const now = Date.now();
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as LiveBusSession;
+      if (data && now - (data.lastUpdated || 0) < 25 * 60 * 1000) {
+        firestoreBuses.push({
+          ...data,
+          id: docSnap.id
+        });
       }
-    }
-  } catch {
-    // Network or static hosting fallback
+    });
+  } catch (err) {
+    console.warn('Firestore fetch fallback:', err);
   }
 
-  // Merge server & local buses (local takes precedence if matching id)
   const map = new Map<string, LiveBusSession>();
-  serverBuses.forEach((b) => map.set(b.id, b));
-  localBuses.forEach((b) => map.set(b.id, b));
+  firestoreBuses.forEach((b) => map.set(b.id, b));
+  localBuses.forEach((b) => {
+    if (!map.has(b.id)) {
+      map.set(b.id, b);
+    }
+  });
 
-  return Array.from(map.values());
+  return Array.from(map.values()).sort((a, b) => b.lastUpdated - a.lastUpdated);
 }

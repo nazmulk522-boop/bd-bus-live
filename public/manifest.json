@@ -1,0 +1,24 @@
+{
+  "name": "বাংলাদেশ বাস লাইভ - BD Bus Live",
+  "short_name": "বাস লাইভ",
+  "description": "বাংলাদেশের চলন্ত বাসের রিয়েল-টাইম লাইভ জিপিএস লোকেশন ট্র্যাকিং প্ল্যাটফর্ম - Developed by Nazmul IT",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#059669",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flatsome.org/512/3448/3448339.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://cdn-icons-png.flatsome.org/512/3448/3448339.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

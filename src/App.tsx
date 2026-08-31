@@ -12,7 +12,7 @@ import { LiveBroadcasterModal } from './components/LiveBroadcasterModal';
 import { LiveMapModal } from './components/LiveMapModal';
 import { Footer } from './components/Footer';
 import { LiveBusSession } from './types';
-import { fetchLiveBuses } from './services/busService';
+import { fetchLiveBuses, subscribeToLiveBuses } from './services/busService';
 import { Radio, RefreshCw, Bus, AlertCircle, Sparkles, MapPin } from 'lucide-react';
 
 export default function App() {
@@ -49,9 +49,23 @@ export default function App() {
     }
   };
 
-  // Real-time updates via SSE + local event listeners
+  // Real-time updates via Firebase Firestore + SSE + local event listeners
   useEffect(() => {
+    // 1. Initial fetch
     fetchActiveBuses();
+
+    // 2. Real-time Firebase Firestore subscription (syncs across ALL devices, browsers, and users worldwide)
+    const unsubscribeFirestore = subscribeToLiveBuses((updatedFleet) => {
+      setBuses(updatedFleet);
+      setLoading(false);
+
+      // If user is currently watching a bus in the map modal, keep it updated with new coordinates
+      setSelectedBusForMap((prev) => {
+        if (!prev) return null;
+        const matching = updatedFleet.find((b) => b.id === prev.id);
+        return matching || prev;
+      });
+    });
 
     const handleLocalUpdate = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
@@ -96,7 +110,6 @@ export default function App() {
             }
           });
 
-          // If this is currently displayed on the map, update selectedBus reference
           setSelectedBusForMap((prev) => (prev && prev.id === updatedBus.id ? updatedBus : prev));
         } catch (err) {
           console.error('SSE bus_location_update parse error', err);
@@ -122,22 +135,18 @@ export default function App() {
       });
 
       eventSource.onerror = () => {
-        // Fallback to polling if SSE fails
         eventSource?.close();
       };
     } catch (e) {
-      console.warn('SSE not supported or failed to connect, falling back to interval polling');
+      console.warn('SSE fallback mode');
     }
 
-    // Interval fallback poll every 5 seconds
-    const interval = setInterval(fetchActiveBuses, 5000);
-
     return () => {
+      unsubscribeFirestore();
       window.removeEventListener('bbl_local_buses_updated', handleLocalUpdate);
       if (eventSource) {
         eventSource.close();
       }
-      clearInterval(interval);
     };
   }, []);
 

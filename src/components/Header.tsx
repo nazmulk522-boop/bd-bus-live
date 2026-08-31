@@ -1,5 +1,5 @@
-import React from 'react';
-import { Radio, MapPin, Bus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Radio, MapPin, Bus, Download } from 'lucide-react';
 
 interface HeaderProps {
   onOpenBroadcastModal: () => void;
@@ -14,6 +14,32 @@ export const Header: React.FC<HeaderProps> = ({
   isBroadcasting,
   onOpenBroadcasterHUD
 }) => {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
+
   return (
     <nav className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 sm:py-4 flex justify-between items-center shadow-xs">
       {/* Brand Logo & Title */}
@@ -34,7 +60,19 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Action Button */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
+        {isInstallable && (
+          <button
+            onClick={handleInstallClick}
+            className="hidden sm:flex bg-slate-900 hover:bg-slate-800 text-emerald-300 font-bold py-2 sm:py-2.5 px-3.5 sm:px-4 rounded-full items-center text-xs sm:text-sm border border-emerald-500/30 shadow-sm transition-all cursor-pointer"
+            id="btn-install-pwa"
+            title="মোবাইল অ্যাপ ইনস্টল করুন"
+          >
+            <Download className="w-4 h-4 mr-1.5 text-emerald-400" />
+            <span>অ্যাপ ইনস্টল</span>
+          </button>
+        )}
+
         {isBroadcasting ? (
           <button
             onClick={onOpenBroadcasterHUD}
@@ -61,3 +99,4 @@ export const Header: React.FC<HeaderProps> = ({
     </nav>
   );
 };
+
