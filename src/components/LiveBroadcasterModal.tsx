@@ -87,6 +87,8 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
   const originDropdownRef = useRef<HTMLDivElement | null>(null);
   const destinationDropdownRef = useRef<HTMLDivElement | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const heartbeatIntervalRef = useRef<any>(null);
+  const wakeLockRef = useRef<any>(null);
 
   const deviceSessionIdRef = useRef<string>(() => {
     let id = localStorage.getItem('bbl_device_session_id');
@@ -96,6 +98,41 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     }
     return id;
   });
+
+  // Acquire Screen WakeLock so device doesn't sleep while broadcasting live
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      }
+    } catch (e) {
+      console.warn('Wake Lock not supported or permission denied', e);
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      try {
+        wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      } catch (e) {
+        console.warn('Wake Lock release error', e);
+      }
+    }
+  };
+
+  // Re-acquire WakeLock on visibility change if session is active
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && activeSession) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeSession]);
 
   // Track active session timer
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -112,12 +149,16 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     return () => clearInterval(interval);
   }, [activeSession]);
 
-  // Clean up geolocation watch on unmount
+  // Clean up geolocation watch, interval, and wakelock on unmount
   useEffect(() => {
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
+      releaseWakeLock();
     };
   }, []);
 
@@ -374,11 +415,19 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     }
   };
 
-  // Continuous background GPS monitor
+  // Continuous background GPS monitor with dual-engine fallback (Watches + Heartbeat Polling)
   const startContinuousWatch = (sessionId: string) => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
     }
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+
+    // Keep screen awake
+    requestWakeLock();
 
     const deviceId =
       typeof deviceSessionIdRef.current === 'function'
@@ -387,44 +436,64 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
     if (!navigator.geolocation) return;
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        const { latitude, longitude, accuracy, speed, heading } = pos.coords;
-        const currentSpeed =
-          speed !== null && !isNaN(speed) && speed > 0 ? Math.round(speed * 3.6) : 0;
+    // Helper to push location
+    const pushLocation = async (pos: GeolocationPosition) => {
+      const { latitude, longitude, accuracy, speed, heading } = pos.coords;
+      const currentSpeed =
+        speed !== null && !isNaN(speed) && speed > 0 ? Math.round(speed * 3.6) : 0;
 
-        setLiveLocationData({
+      setLiveLocationData({
+        lat: latitude,
+        lng: longitude,
+        accuracy: Math.round(accuracy),
+        speed: currentSpeed,
+        lastUpdateMs: Date.now()
+      });
+
+      try {
+        await updateBroadcastLocation({
+          sessionId,
+          deviceSessionId: deviceId,
           lat: latitude,
           lng: longitude,
           accuracy: Math.round(accuracy),
           speed: currentSpeed,
-          lastUpdateMs: Date.now()
+          heading: heading || 0,
+          timestamp: Date.now()
         });
+      } catch (e) {
+        console.error('Failed to sync location', e);
+      }
+    };
 
-        try {
-          await updateBroadcastLocation({
-            sessionId,
-            deviceSessionId: deviceId,
-            lat: latitude,
-            lng: longitude,
-            accuracy: Math.round(accuracy),
-            speed: currentSpeed,
-            heading: heading || 0,
-            timestamp: Date.now()
-          });
-        } catch (e) {
-          console.error('Failed to sync location', e);
-        }
-      },
+    // 1. Native Geolocation Watch
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => pushLocation(pos),
       (err) => {
         console.warn('Continuous GPS watch warning:', err.message);
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 2500,
-        timeout: 12000
+        maximumAge: 3000,
+        timeout: 10000
       }
     );
+
+    // 2. Periodic Heartbeat Poller (Guarantees location continues even when chat heads or bubbles are touched)
+    heartbeatIntervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => pushLocation(pos),
+        () => {
+          // Fallback to low-accuracy network position
+          navigator.geolocation.getCurrentPosition(
+            (fallbackPos) => pushLocation(fallbackPos),
+            () => {},
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+          );
+        },
+        { enableHighAccuracy: true, timeout: 4000, maximumAge: 5000 }
+      );
+    }, 4000);
   };
 
   // Stop Live Broadcast
@@ -433,6 +502,11 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    releaseWakeLock();
 
     if (activeSession) {
       try {

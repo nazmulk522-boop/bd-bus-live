@@ -169,12 +169,10 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
       const originIcon = L.divIcon({
         className: 'custom-origin-marker',
         html: `
-          <div class="relative flex flex-col items-center group -translate-x-1/2 -translate-y-full">
-            <div class="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl border-2 border-white shadow-xl flex items-center gap-1.5 whitespace-nowrap transition-transform">
-              <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
-              <span>🟢 শুরু: ${calculatedDirection.originGeo.nameBn}</span>
+          <div class="relative flex flex-col items-center group -translate-x-1/2 -translate-y-1/2">
+            <div class="w-6 h-6 rounded-full bg-emerald-600 border-2 border-white shadow-md flex items-center justify-center text-xs text-white">
+              🟢
             </div>
-            <div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[7px] border-t-emerald-600"></div>
           </div>
         `,
         iconSize: [0, 0],
@@ -183,17 +181,13 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
 
       const originMarker = L.marker(
         [calculatedDirection.originGeo.lat, calculatedDirection.originGeo.lng],
-        { icon: originIcon, title: `শুরু গন্তব্য: ${calculatedDirection.originGeo.nameBn}` }
+        { icon: originIcon, title: `শুরু: ${calculatedDirection.originGeo.nameBn}` }
       );
 
       originMarker.bindPopup(`
-        <div class="p-3 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[190px]">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
-            <strong class="text-sm font-bold text-emerald-800">যাত্রার শুরু কাউন্টার</strong>
-          </div>
-          <div class="text-xs text-slate-700 font-semibold">${calculatedDirection.originGeo.nameBn}</div>
-          <div class="text-[11px] text-slate-500 mt-1">রুট: ${selectedBus.originBn} ➔ ${selectedBus.destinationBn}</div>
+        <div class="p-2.5 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[160px]">
+          <strong class="text-xs font-bold text-emerald-800">🟢 শুরু কাউন্টার</strong>
+          <div class="text-xs text-slate-800 font-semibold mt-0.5">${calculatedDirection.originGeo.nameBn}</div>
         </div>
       `);
 
@@ -205,12 +199,10 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
       const destIcon = L.divIcon({
         className: 'custom-destination-marker',
         html: `
-          <div class="relative flex flex-col items-center group -translate-x-1/2 -translate-y-full">
-            <div class="bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl border-2 border-white shadow-xl flex items-center gap-1.5 whitespace-nowrap transition-transform">
-              <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
-              <span>🔴 শেষ: ${calculatedDirection.destinationGeo.nameBn}</span>
+          <div class="relative flex flex-col items-center group -translate-x-1/2 -translate-y-1/2">
+            <div class="w-6 h-6 rounded-full bg-rose-600 border-2 border-white shadow-md flex items-center justify-center text-xs text-white">
+              🔴
             </div>
-            <div class="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[7px] border-t-red-600"></div>
           </div>
         `,
         iconSize: [0, 0],
@@ -219,17 +211,13 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
 
       const destMarker = L.marker(
         [calculatedDirection.destinationGeo.lat, calculatedDirection.destinationGeo.lng],
-        { icon: destIcon, title: `শেষ গন্তব্য: ${calculatedDirection.destinationGeo.nameBn}` }
+        { icon: destIcon, title: `শেষ: ${calculatedDirection.destinationGeo.nameBn}` }
       );
 
       destMarker.bindPopup(`
-        <div class="p-3 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[190px]">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="w-3 h-3 rounded-full bg-red-500"></span>
-            <strong class="text-sm font-bold text-red-800">যাত্রার শেষ গন্তব্য</strong>
-          </div>
-          <div class="text-xs text-slate-700 font-semibold">${calculatedDirection.destinationGeo.nameBn}</div>
-          <div class="text-[11px] text-slate-500 mt-1">পৌঁছানোর স্থান</div>
+        <div class="p-2.5 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[160px]">
+          <strong class="text-xs font-bold text-rose-800">🔴 শেষ গন্তব্য</strong>
+          <div class="text-xs text-slate-800 font-semibold mt-0.5">${calculatedDirection.destinationGeo.nameBn}</div>
         </div>
       `);
 
@@ -268,7 +256,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
     markersLayer.addLayer(accuracyCircle);
     accuracyCircleRef.current = accuracyCircle;
 
-    // 4. Render All Active Buses (Highlighting Selected Bus)
+    // 4. Render All Active Buses (Small Clean Bus Icon Marker)
     allBuses.forEach((bus) => {
       const isSelected = bus.id === selectedBus.id;
       const speedBn = toBanglaNumber(bus.speed || 0);
@@ -276,35 +264,27 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
       const busIcon = L.divIcon({
         className: 'custom-bus-marker',
         html: `
-          <div class="relative flex flex-col items-center -translate-x-1/2 -translate-y-1/2 cursor-pointer group">
+          <div class="relative flex items-center justify-center -translate-x-1/2 -translate-y-1/2 cursor-pointer group">
             <!-- Pulsing radar glow for selected bus -->
             ${
               isSelected
-                ? '<div class="absolute inset-0 w-12 h-12 -left-1.5 -top-1.5 bg-emerald-500/30 rounded-2xl bus-pulse-animation pointer-events-none"></div>'
+                ? '<div class="absolute w-12 h-12 bg-emerald-500/30 rounded-full animate-ping pointer-events-none"></div>'
                 : ''
             }
 
-            <!-- Main Bus Pill -->
-            <div class="relative flex items-center justify-center gap-1.5 px-3 py-2 rounded-2xl shadow-2xl transition-all border-2 ${
+            <!-- Compact Bus Icon Circle -->
+            <div class="relative w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-transform border-2 ${
               isSelected
-                ? 'bg-slate-900 text-white border-emerald-400 scale-110 ring-4 ring-emerald-500/30 z-30'
-                : 'bg-white text-slate-800 border-slate-300 hover:scale-105 z-10'
+                ? 'bg-slate-950 border-emerald-400 ring-4 ring-emerald-500/30 scale-110 z-30 text-white'
+                : 'bg-white border-slate-300 hover:scale-110 z-10 text-slate-800'
             }">
-              <span class="text-lg">🚌</span>
-              <div class="text-left">
-                <div class="text-[10px] font-bold ${isSelected ? 'text-emerald-300' : 'text-slate-600'} leading-none">
-                  ${bus.companyNameBn}
-                </div>
-                <div class="text-[11px] font-mono font-extrabold ${isSelected ? 'text-white' : 'text-slate-900'} leading-tight">
-                  ${speedBn} কিমি/ঘ
-                </div>
-              </div>
+              <span class="text-sm">🚌</span>
 
               <!-- Direction Indicator Arrow -->
               ${
                 bus.speed > 0
-                  ? `<div class="w-3 h-3 bg-emerald-400 rounded-full flex items-center justify-center border border-white" style="transform: rotate(${bus.heading || 0}deg)">
-                      <span class="text-[8px] font-black text-slate-950">▲</span>
+                  ? `<div class="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center border border-white" style="transform: rotate(${bus.heading || 0}deg)">
+                      <span class="text-[7px] font-black text-white leading-none">▲</span>
                      </div>`
                   : ''
               }
@@ -418,43 +398,16 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
       style={{ touchAction: 'manipulation' }}
     >
       <div className="relative w-full max-w-6xl h-[92vh] bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-        {/* Top Header Bar */}
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3 shrink-0">
-          {/* Bus Info & Branding */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-xl shadow-xs shrink-0">
-              🚌
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
-                  {selectedBus.companyNameBn}
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                  <span>OpenStreetMap Live</span>
-                </span>
-              </div>
-              <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="font-mono font-bold text-slate-800">{selectedBus.busNumber}</span>
-                <span>•</span>
-                <span className="text-slate-700 font-semibold flex items-center gap-1">
-                  <span>{selectedBus.originBn}</span>
-                  <ArrowRight className="w-3 h-3 text-slate-400" />
-                  <span>{selectedBus.destinationBn}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
+        {/* Top Header Bar (Clean & Compact) */}
+        <div className="px-3 sm:px-4 py-2.5 border-b border-slate-200 bg-white flex items-center justify-between gap-2 shrink-0">
           {/* Action & Layer Controls */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {/* Tile Layer Selector */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setActiveLayer('osm')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                   activeLayer === 'osm'
                     ? 'bg-white text-emerald-700 font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -467,7 +420,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveLayer('dark')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                   activeLayer === 'dark'
                     ? 'bg-slate-900 text-emerald-300 font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -480,7 +433,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveLayer('satellite')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
                   activeLayer === 'satellite'
                     ? 'bg-emerald-700 text-white font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -492,23 +445,11 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
               </button>
             </div>
 
-            {/* Share Live Location Button */}
-            <button
-              type="button"
-              onClick={() => setIsShareModalOpen(true)}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-              title="লাইভ ট্র্যাকিং লিংক শেয়ার করুন (WhatsApp, Messenger, Copy Link)"
-              id="btn-share-live-map"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>লাইভ শেয়ার</span>
-            </button>
-
             {/* Fit View (All 3 Points) */}
             <button
               type="button"
               onClick={handleFitBounds}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 flex items-center gap-1.5 transition-all cursor-pointer"
+              className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 flex items-center gap-1 transition-all cursor-pointer"
               title="শুরু, বাস এবং গন্তব্য একসাথে দেখুন"
               id="btn-fit-bounds"
             >
@@ -520,7 +461,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
             <button
               type="button"
               onClick={() => setAutoCenter(!autoCenter)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
                 autoCenter
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
@@ -531,38 +472,28 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
               <Locate className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">অটো ফোকাস: {autoCenter ? 'অন' : 'অফ'}</span>
             </button>
-
-            {/* Close Button */}
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-              id="btn-close-map-modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
+
+          {/* Close Button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            id="btn-close-map-modal"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Map Container Area */}
         <div className="relative flex-1 w-full h-full bg-slate-100 overflow-hidden">
-          {/* Top Floating Status Badge */}
-          <div className="absolute top-3.5 left-3.5 z-400 pointer-events-none flex flex-col gap-2">
-            <div className="bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700/80 flex items-center gap-3 max-w-md pointer-events-auto">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-              <div className="space-y-0.5 text-xs">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-emerald-300 font-bold">🟢 শুরু: {selectedBus.originBn}</span>
-                  <span className="text-slate-400">➔</span>
-                  <span className="text-red-300 font-bold">🔴 গন্তব্য: {selectedBus.destinationBn}</span>
-                </div>
-                <div className="text-slate-200 font-medium flex items-center gap-1">
-                  <span>🚌 বাসের বর্তমান অবস্থান:</span>
-                  <span className="font-bold text-amber-300">
-                    {selectedBus.currentLocationNameBn || selectedBus.currentLocationName}
-                  </span>
-                </div>
-              </div>
+          {/* Left Speed HUD (বামে ছোট করে শুধু স্পিড দেখাবে) */}
+          <div className="absolute top-3.5 left-3.5 z-400 pointer-events-auto">
+            <div className="bg-slate-900/90 backdrop-blur-md text-white px-3 py-1.5 rounded-xl shadow-xl border border-slate-700/80 flex items-center gap-1.5">
+              <Gauge className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-xs font-mono font-extrabold text-emerald-400">
+                {selectedBus.speed > 0 ? `${toBanglaNumber(selectedBus.speed)} কিমি/ঘ` : '০ কিমি/ঘ'}
+              </span>
             </div>
           </div>
 
@@ -573,58 +504,33 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
             style={{ width: '100%', height: '100%', zIndex: 1 }}
           />
 
-          {/* Bottom Floating Telemetry & Nazmul IT Branding HUD */}
-          <div className="absolute bottom-4 left-4 right-4 z-400 max-w-2xl mx-auto bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-slate-200 pointer-events-auto">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg">
-                  📍
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-500 font-medium">বাসের বর্তমান অবস্থান:</div>
-                  <div className="text-sm font-extrabold text-slate-900">
-                    {selectedBus.currentLocationNameBn || selectedBus.currentLocationName}
+          {/* Bottom Floating Info Pill (নিচে বাসের নাম ও শুরু ও শেষ গন্তব্য ছোট করে লেখা) */}
+          <div className="absolute bottom-3 left-3 right-3 sm:left-auto sm:right-3 sm:max-w-md z-400 pointer-events-auto">
+            <div className="bg-slate-900/90 backdrop-blur-md text-white px-3.5 py-2 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center justify-between gap-3">
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="text-base shrink-0">🚌</span>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white truncate">
+                    {selectedBus.companyNameBn} {selectedBus.busNumber ? `(${selectedBus.busNumber})` : ''}
+                  </div>
+                  <div className="text-[11px] text-emerald-300 font-medium truncate flex items-center gap-1">
+                    <span>{selectedBus.originBn}</span>
+                    <span className="text-slate-400">➔</span>
+                    <span className="text-rose-300">{selectedBus.destinationBn}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
-                <div>
-                  <div className="text-[11px] text-slate-500 font-medium">চলমান গতি:</div>
-                  <div className="text-sm font-mono font-extrabold text-emerald-700">
-                    {selectedBus.speed > 0 ? `${toBanglaNumber(selectedBus.speed)} কিমি/ঘণ্টা` : 'থেমে আছে'}
-                  </div>
-                </div>
-
-                <div className="border-l border-slate-200 pl-4">
-                  <div className="text-[11px] text-slate-500 font-medium">জিপিএস একুরেসি:</div>
-                  <div className="text-sm font-mono font-bold text-slate-800">
-                    ±{toBanglaNumber(selectedBus.accuracy || 12)} মিটার
-                  </div>
-                </div>
-
-                <div className="border-l border-slate-200 pl-4">
-                  <button
-                    type="button"
-                    onClick={() => setIsShareModalOpen(true)}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <Share2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>শেয়ার</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Credits & Open-Source Attribution */}
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
-              <div className="flex items-center gap-1.5 text-emerald-800 font-semibold">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>ওপেন-সোর্স OpenStreetMap ও Leaflet দ্বারা চালিত (আনলিমিটেড ও ফ্রি)</span>
-              </div>
-              <div className="font-medium text-slate-600">
-                Developed by <strong className="text-emerald-700 font-bold uppercase">Nazmul IT</strong>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsShareModalOpen(true)}
+                className="px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center gap-1 transition-all cursor-pointer shrink-0 shadow-xs"
+                title="লাইভ ট্র্যাকিং শেয়ার করুন"
+                id="btn-share-live-map"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>শেয়ার</span>
+              </button>
             </div>
           </div>
         </div>
