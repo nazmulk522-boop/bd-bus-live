@@ -164,7 +164,7 @@ export async function startBroadcastSession(payload: {
   try {
     const docRef = doc(db, COLLECTION_NAME, sessionId);
     const sanitized = sanitizeForFirestore(newSession);
-    await setDoc(docRef, sanitized);
+    await setDoc(docRef, sanitized, { merge: true });
   } catch (err) {
     console.error('Firestore cloud broadcast error:', err);
   }
@@ -241,7 +241,7 @@ export async function updateBroadcastLocation(payload: {
       status: 'live',
       lastUpdated: payload.timestamp || Date.now()
     });
-    await updateDoc(docRef, updateData);
+    await setDoc(docRef, updateData, { merge: true });
   } catch (err) {
     console.error('Firestore location sync error:', err);
   }
