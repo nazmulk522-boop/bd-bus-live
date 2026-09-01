@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Header } from './components/Header';
 import { HeroIntro } from './components/HeroIntro';
 import { CompanyFilter } from './components/CompanyFilter';
 import { BusCard } from './components/BusCard';
 import { LiveBroadcasterModal } from './components/LiveBroadcasterModal';
 import { LiveMapModal } from './components/LiveMapModal';
+import { ShareModal } from './components/ShareModal';
 import { Footer } from './components/Footer';
 import { LiveBusSession } from './types';
 import { fetchLiveBuses, subscribeToLiveBuses } from './services/busService';
@@ -26,6 +27,12 @@ export default function App() {
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState<boolean>(false);
   const [isMapModalOpen, setIsMapModalOpen] = useState<boolean>(false);
   const [selectedBusForMap, setSelectedBusForMap] = useState<LiveBusSession | null>(null);
+
+  // Share Modal state
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  const [selectedBusForShare, setSelectedBusForShare] = useState<LiveBusSession | null>(null);
+
+  const initialUrlBusHandled = useRef<boolean>(false);
 
   // Active user's own broadcast session
   const [myBroadcastSession, setMyBroadcastSession] = useState<LiveBusSession | null>(() => {
@@ -150,6 +157,23 @@ export default function App() {
     };
   }, []);
 
+  // Auto-open live tracking if user visited via a shared direct link (?bus=<busId>)
+  useEffect(() => {
+    if (initialUrlBusHandled.current || buses.length === 0) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetBusId = params.get('bus') || params.get('busId');
+      if (targetBusId) {
+        const target = buses.find((b) => b.id.toLowerCase() === targetBusId.toLowerCase());
+        if (target) {
+          setSelectedBusForMap(target);
+          setIsMapModalOpen(true);
+          initialUrlBusHandled.current = true;
+        }
+      }
+    } catch {}
+  }, [buses]);
+
   // Filter buses by company, route, search query
   const filteredBuses = useMemo(() => {
     return buses.filter((bus) => {
@@ -185,6 +209,11 @@ export default function App() {
   const handleOpenMap = (bus: LiveBusSession) => {
     setSelectedBusForMap(bus);
     setIsMapModalOpen(true);
+  };
+
+  const handleOpenShare = (bus: LiveBusSession) => {
+    setSelectedBusForShare(bus);
+    setIsShareModalOpen(true);
   };
 
   const handleSessionStart = (session: LiveBusSession) => {
@@ -300,6 +329,7 @@ export default function App() {
                   key={bus.id}
                   bus={bus}
                   onOpenMap={handleOpenMap}
+                  onShare={handleOpenShare}
                   isMyBroadcast={myBroadcastSession?.id === bus.id}
                 />
               ))}
@@ -324,6 +354,13 @@ export default function App() {
         selectedBus={selectedBusForMap}
         allBuses={buses}
         onSelectBus={setSelectedBusForMap}
+      />
+
+      {/* Direct Share Live Location Modal */}
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        bus={selectedBusForShare}
       />
 
       {/* Footer */}

@@ -18,8 +18,10 @@ import {
   Maximize2,
   Radio,
   ShieldCheck,
-  Compass
+  Compass,
+  Share2
 } from 'lucide-react';
+import { ShareModal } from './ShareModal';
 
 interface LiveMapModalProps {
   isOpen: boolean;
@@ -71,6 +73,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
   const [activeLayer, setActiveLayer] = useState<TileLayerType>('osm');
   const [autoCenter, setAutoCenter] = useState<boolean>(true);
   const [showCheckpoints, setShowCheckpoints] = useState<boolean>(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
 
   // Initialize or Destroy Leaflet Map
   useEffect(() => {
@@ -489,6 +492,18 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
               </button>
             </div>
 
+            {/* Share Live Location Button */}
+            <button
+              type="button"
+              onClick={() => setIsShareModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+              title="লাইভ ট্র্যাকিং লিংক শেয়ার করুন (WhatsApp, Messenger, Copy Link)"
+              id="btn-share-live-map"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>লাইভ শেয়ার</span>
+            </button>
+
             {/* Fit View (All 3 Points) */}
             <button
               type="button"
@@ -587,6 +602,17 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
                     ±{toBanglaNumber(selectedBus.accuracy || 12)} মিটার
                   </div>
                 </div>
+
+                <div className="border-l border-slate-200 pl-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsShareModalOpen(true)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>শেয়ার</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -603,6 +629,13 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Share Modal */}
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        bus={selectedBus}
+      />
     </div>
   );
 };

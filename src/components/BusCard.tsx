@@ -1,15 +1,49 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LiveBusSession } from '../types';
 import { formatBanglaTimeAgo, toBanglaNumber } from '../data/bangladeshRoutes';
-import { MapPin, Navigation, Gauge, Clock, Radio, ChevronRight } from 'lucide-react';
+import { MapPin, Navigation, Gauge, Clock, Radio, ChevronRight, Share2, Check, Copy } from 'lucide-react';
 
 interface BusCardProps {
   bus: LiveBusSession;
   onOpenMap: (bus: LiveBusSession) => void;
+  onShare?: (bus: LiveBusSession) => void;
   isMyBroadcast?: boolean;
 }
 
-export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, isMyBroadcast }) => {
+export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, onShare, isMyBroadcast }) => {
+  const [copied, setCopied] = useState<boolean>(false);
+
+  const handleQuickCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onShare) {
+      onShare(bus);
+      return;
+    }
+
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+    const shareUrl = `${currentOrigin}${currentPath}?bus=${encodeURIComponent(bus.id)}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${bus.companyNameBn} - লাইভ বাস ট্র্যাকিং`,
+          text: `🚌 ${bus.companyNameBn} (${bus.busNumber}) বাসের লাইভ লোকেশন দেখুন:\n📍 রুট: ${bus.originBn} ➔ ${bus.destinationBn}\n📍 বর্তমান অবস্থান: ${bus.currentLocationNameBn || bus.currentLocationName}`,
+          url: shareUrl
+        });
+        return;
+      } catch {}
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback
+    }
+  };
+
   // Status Badge Logic
   const renderStatusBadge = () => {
     if (bus.status === 'live') {
@@ -112,14 +146,35 @@ export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, isMyBroadcast 
         </div>
       </div>
 
-      {/* Action Button: View on Map */}
-      <button
-        onClick={() => onOpenMap(bus)}
-        className="w-full bg-slate-100 hover:bg-slate-200 active:scale-98 text-slate-700 font-bold py-2.5 rounded-xl text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-        id={`btn-view-map-${bus.id}`}
-      >
-        <span>🗺️ লোকেশন দেখুন</span>
-      </button>
+      {/* Action Buttons: View on Map & Share Live Location */}
+      <div className="grid grid-cols-5 gap-2">
+        <button
+          onClick={() => onOpenMap(bus)}
+          className="col-span-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold py-2.5 px-3 rounded-xl text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+          id={`btn-view-map-${bus.id}`}
+        >
+          <span>🗺️ লোকেশন দেখুন</span>
+        </button>
+
+        <button
+          onClick={handleQuickCopy}
+          className="col-span-2 bg-slate-100 hover:bg-slate-200 active:scale-98 text-slate-700 font-bold py-2.5 px-2 rounded-xl text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-slate-200"
+          id={`btn-share-live-${bus.id}`}
+          title="লাইভ লোকেশন শেয়ার করুন (WhatsApp, Messenger, কপি লিংক)"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-emerald-700 text-xs">কপি হয়েছে!</span>
+            </>
+          ) : (
+            <>
+              <Share2 className="w-3.5 h-3.5 text-slate-600" />
+              <span className="text-xs">শেয়ার করুন</span>
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 };
