@@ -2,13 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   BUS_COMPANIES,
   BUS_ROUTES,
-  BD_POPULAR_STOPS_COUNTERS,
   geocodeLocation,
   buildRouteDirection,
   toBanglaNumber,
-  formatBanglaTimeAgo,
-  BDPlaceStop
+  formatBanglaTimeAgo
 } from '../data/bangladeshRoutes';
+import { searchPlaceLocations, PlaceLocation } from '../data/bangladeshPlaces';
 import { LiveBusSession } from '../types';
 import {
   startBroadcastSession,
@@ -62,9 +61,9 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
   // 2. Bus Number State
   const [busNumber, setBusNumber] = useState<string>('');
 
-  // 3. Origin & Destination Counter / Stop States
-  const [originSearch, setOriginSearch] = useState<string>('ঢাকা (গাবতলী)');
-  const [destinationSearch, setDestinationSearch] = useState<string>('সিরাজগঞ্জ');
+  // 3. Origin & Destination Counter / Stop States (Empty defaults as requested)
+  const [originSearch, setOriginSearch] = useState<string>('');
+  const [destinationSearch, setDestinationSearch] = useState<string>('');
   const [showOriginSuggestions, setShowOriginSuggestions] = useState<boolean>(false);
   const [showDestinationSuggestions, setShowDestinationSuggestions] = useState<boolean>(false);
 
@@ -142,7 +141,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Filter Company Suggestions - only when user typed text
+  // Filter Company Suggestions
   const filteredCompanies = companySearch.trim()
     ? BUS_COMPANIES.filter((c) => {
         const query = companySearch.toLowerCase().trim();
@@ -154,36 +153,14 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
       })
     : [];
 
-  // Filter Origin Counter Suggestions - only when user typed text
-  const filteredOrigins = originSearch.trim()
-    ? BD_POPULAR_STOPS_COUNTERS.filter((s) => {
-        const q = originSearch.toLowerCase().trim();
-        return (
-          s.nameBn.toLowerCase().includes(q) ||
-          s.nameEn.toLowerCase().includes(q) ||
-          s.districtBn.toLowerCase().includes(q) ||
-          s.districtEn.toLowerCase().includes(q)
-        );
-      })
-    : [];
-
-  // Filter Destination Counter Suggestions - only when user typed text
-  const filteredDestinations = destinationSearch.trim()
-    ? BD_POPULAR_STOPS_COUNTERS.filter((s) => {
-        const q = destinationSearch.toLowerCase().trim();
-        return (
-          s.nameBn.toLowerCase().includes(q) ||
-          s.nameEn.toLowerCase().includes(q) ||
-          s.districtBn.toLowerCase().includes(q) ||
-          s.districtEn.toLowerCase().includes(q)
-        );
-      })
-    : [];
+  // Comprehensive Search for All 64 Districts, Upazilas & Bus Stands
+  const filteredOrigins = originSearch.trim() ? searchPlaceLocations(originSearch, 12) : [];
+  const filteredDestinations = destinationSearch.trim() ? searchPlaceLocations(destinationSearch, 12) : [];
 
   // Calculate live route direction preview
   const directionPreview = buildRouteDirection(
-    originSearch.trim() || 'ঢাকা (গাবতলী)',
-    destinationSearch.trim() || 'সিরাজগঞ্জ'
+    originSearch.trim() || 'শুরুর স্থান',
+    destinationSearch.trim() || 'গন্তব্য'
   );
 
   const handleSelectCompany = (company: typeof BUS_COMPANIES[0]) => {
@@ -192,13 +169,13 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     setShowCompanySuggestions(false);
   };
 
-  const handleSelectOrigin = (stop: BDPlaceStop) => {
-    setOriginSearch(stop.nameBn);
+  const handleSelectOrigin = (place: PlaceLocation) => {
+    setOriginSearch(place.nameBn);
     setShowOriginSuggestions(false);
   };
 
-  const handleSelectDestination = (stop: BDPlaceStop) => {
-    setDestinationSearch(stop.nameBn);
+  const handleSelectDestination = (place: PlaceLocation) => {
+    setDestinationSearch(place.nameBn);
     setShowDestinationSuggestions(false);
   };
 
@@ -815,16 +792,19 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
                     {/* Origin Suggestions */}
                     {showOriginSuggestions && originSearch.trim().length > 0 && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto divide-y divide-slate-100 animate-in fade-in">
-                        {filteredOrigins.slice(0, 10).map((s) => (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-56 overflow-y-auto divide-y divide-slate-100 animate-in fade-in">
+                        {filteredOrigins.slice(0, 10).map((s, idx) => (
                           <button
-                            key={s.id}
+                            key={`${s.nameBn}-${idx}`}
                             type="button"
                             onClick={() => handleSelectOrigin(s)}
-                            className="w-full px-3 py-2 text-left hover:bg-emerald-50 flex items-center justify-between text-xs cursor-pointer"
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-emerald-50 flex items-center justify-between text-xs cursor-pointer group transition-colors"
                           >
-                            <span className="font-bold text-slate-800">{s.nameBn}</span>
-                            <span className="text-[10px] text-slate-400">{s.districtBn}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                              <span className="font-bold text-slate-800 group-hover:text-emerald-700">{s.nameBn}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-medium">{s.districtBn}</span>
                           </button>
                         ))}
                       </div>
@@ -849,7 +829,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
                             setShowDestinationSuggestions(true);
                           }
                         }}
-                        placeholder="যেমন: সিরাজগঞ্জ, শেরপুর, বগুড়া, দিনাজপুর..."
+                        placeholder="যেমন: চট্টগ্রাম, দিনাজপুর, ঢাকা (দোহার)..."
                         className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs text-slate-800"
                         id="input-destination-stop"
                         autoComplete="off"
@@ -861,16 +841,19 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
                     {/* Destination Suggestions */}
                     {showDestinationSuggestions && destinationSearch.trim().length > 0 && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto divide-y divide-slate-100 animate-in fade-in">
-                        {filteredDestinations.slice(0, 10).map((s) => (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-2xl shadow-xl border border-slate-200 max-h-56 overflow-y-auto divide-y divide-slate-100 animate-in fade-in">
+                        {filteredDestinations.slice(0, 10).map((s, idx) => (
                           <button
-                            key={s.id}
+                            key={`${s.nameBn}-${idx}`}
                             type="button"
                             onClick={() => handleSelectDestination(s)}
-                            className="w-full px-3 py-2 text-left hover:bg-emerald-50 flex items-center justify-between text-xs cursor-pointer"
+                            className="w-full px-3.5 py-2.5 text-left hover:bg-red-50 flex items-center justify-between text-xs cursor-pointer group transition-colors"
                           >
-                            <span className="font-bold text-slate-800">{s.nameBn}</span>
-                            <span className="text-[10px] text-slate-400">{s.districtBn}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
+                              <span className="font-bold text-slate-800 group-hover:text-red-700">{s.nameBn}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-medium">{s.districtBn}</span>
                           </button>
                         ))}
                       </div>
