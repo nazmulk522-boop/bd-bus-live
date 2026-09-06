@@ -3,8 +3,7 @@ import L from 'leaflet';
 import { LiveBusSession } from '../types';
 import {
   formatBanglaTimeAgo,
-  toBanglaNumber,
-  buildRouteDirection
+  toBanglaNumber
 } from '../data/bangladeshRoutes';
 import {
   X,
@@ -72,7 +71,6 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
 
   const [activeLayer, setActiveLayer] = useState<TileLayerType>('osm');
   const [autoCenter, setAutoCenter] = useState<boolean>(true);
-  const [showCheckpoints, setShowCheckpoints] = useState<boolean>(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
 
   // Initialize or Destroy Leaflet Map
@@ -159,91 +157,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
     const markersLayer = markersLayerGroupRef.current;
     markersLayer.clearLayers();
 
-    const calculatedDirection = buildRouteDirection(
-      selectedBus.originBn || 'ঢাকা (গাবতলী)',
-      selectedBus.destinationBn || 'সিরাজগঞ্জ'
-    );
-
-    // 1. Origin Stop Marker (🟢 শুরু গন্তব্য)
-    if (calculatedDirection.originGeo) {
-      const originIcon = L.divIcon({
-        className: 'custom-origin-marker',
-        html: `
-          <div class="relative flex flex-col items-center group -translate-x-1/2 -translate-y-1/2">
-            <div class="w-6 h-6 rounded-full bg-emerald-600 border-2 border-white shadow-md flex items-center justify-center text-xs text-white">
-              🟢
-            </div>
-          </div>
-        `,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-
-      const originMarker = L.marker(
-        [calculatedDirection.originGeo.lat, calculatedDirection.originGeo.lng],
-        { icon: originIcon, title: `শুরু: ${calculatedDirection.originGeo.nameBn}` }
-      );
-
-      originMarker.bindPopup(`
-        <div class="p-2.5 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[160px]">
-          <strong class="text-xs font-bold text-emerald-800">🟢 শুরু কাউন্টার</strong>
-          <div class="text-xs text-slate-800 font-semibold mt-0.5">${calculatedDirection.originGeo.nameBn}</div>
-        </div>
-      `);
-
-      markersLayer.addLayer(originMarker);
-    }
-
-    // 2. Destination Stop Marker (🔴 শেষ গন্তব্য)
-    if (calculatedDirection.destinationGeo) {
-      const destIcon = L.divIcon({
-        className: 'custom-destination-marker',
-        html: `
-          <div class="relative flex flex-col items-center group -translate-x-1/2 -translate-y-1/2">
-            <div class="w-6 h-6 rounded-full bg-rose-600 border-2 border-white shadow-md flex items-center justify-center text-xs text-white">
-              🔴
-            </div>
-          </div>
-        `,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-
-      const destMarker = L.marker(
-        [calculatedDirection.destinationGeo.lat, calculatedDirection.destinationGeo.lng],
-        { icon: destIcon, title: `শেষ: ${calculatedDirection.destinationGeo.nameBn}` }
-      );
-
-      destMarker.bindPopup(`
-        <div class="p-2.5 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[160px]">
-          <strong class="text-xs font-bold text-rose-800">🔴 শেষ গন্তব্য</strong>
-          <div class="text-xs text-slate-800 font-semibold mt-0.5">${calculatedDirection.destinationGeo.nameBn}</div>
-        </div>
-      `);
-
-      markersLayer.addLayer(destMarker);
-    }
-
-    // Optional: Intermediate Checkpoints
-    if (showCheckpoints && calculatedDirection.checkpoints.length > 0) {
-      calculatedDirection.checkpoints.forEach((cp) => {
-        const cpIcon = L.divIcon({
-          className: 'custom-cp-marker',
-          html: `
-            <div class="bg-white/95 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded-md border border-slate-300 shadow-md flex items-center gap-1 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap">
-              <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-              <span>${cp.nameBn}</span>
-            </div>
-          `,
-          iconSize: [0, 0],
-          iconAnchor: [0, 0]
-        });
-        const cpMarker = L.marker([cp.lat, cp.lng], { icon: cpIcon });
-        markersLayer.addLayer(cpMarker);
-      });
-    }
-
-    // 3. GPS Accuracy Range Ring (±মিটার) for Selected Bus
+    // 1. GPS Accuracy Range Ring (±মিটার) for Selected Bus
     const accuracy = selectedBus.accuracy || 15;
     const accuracyCircle = L.circle([selectedBus.currentLat, selectedBus.currentLng], {
       radius: Math.max(accuracy, 20),
@@ -256,7 +170,7 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
     markersLayer.addLayer(accuracyCircle);
     accuracyCircleRef.current = accuracyCircle;
 
-    // 4. Render All Active Buses (Small Clean Bus Icon Marker)
+    // 2. Render All Active Buses (Small Clean Bus Icon Marker)
     allBuses.forEach((bus) => {
       const isSelected = bus.id === selectedBus.id;
       const speedBn = toBanglaNumber(bus.speed || 0);
@@ -311,32 +225,19 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
     if (autoCenter) {
       map.panTo([selectedBus.currentLat, selectedBus.currentLng], { animate: true, duration: 0.8 });
     }
-  }, [selectedBus, allBuses, autoCenter, showCheckpoints]);
+  }, [selectedBus, allBuses, autoCenter]);
 
-  // Fit all 3 Points (Origin, Bus, Destination) in View
+  // Fit View / Focus Bus
   const handleFitBounds = () => {
     if (!mapInstanceRef.current || !selectedBus) return;
     const map = mapInstanceRef.current;
 
-    const calculatedDirection = buildRouteDirection(
-      selectedBus.originBn || 'ঢাকা (গাবতলী)',
-      selectedBus.destinationBn || 'সিরাজগঞ্জ'
-    );
-
-    const points: [number, number][] = [[selectedBus.currentLat, selectedBus.currentLng]];
-
-    if (calculatedDirection.originGeo) {
-      points.push([calculatedDirection.originGeo.lat, calculatedDirection.originGeo.lng]);
-    }
-    if (calculatedDirection.destinationGeo) {
-      points.push([calculatedDirection.destinationGeo.lat, calculatedDirection.destinationGeo.lng]);
-    }
-
-    if (points.length > 1) {
+    if (allBuses.length > 1) {
+      const points = allBuses.map((b) => [b.currentLat, b.currentLng] as [number, number]);
       const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
     } else {
-      map.setView([selectedBus.currentLat, selectedBus.currentLng], 13);
+      map.setView([selectedBus.currentLat, selectedBus.currentLng], 14);
     }
   };
 
