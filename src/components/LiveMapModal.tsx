@@ -300,61 +300,11 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
         zIndexOffset: isSelected ? 1000 : 100
       });
 
-      // Rich Telemetry Popup
-      const popupHtml = `
-        <div class="p-3 text-slate-900 font-['Hind_Siliguri',sans-serif] min-w-[230px]">
-          <div class="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-slate-100">
-            <div class="flex items-center gap-1.5">
-              <span class="text-base">🚌</span>
-              <strong class="text-sm font-extrabold text-slate-900">${bus.companyNameBn}</strong>
-            </div>
-            <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold text-[10px] rounded-full">
-              ● Live
-            </span>
-          </div>
-
-          <div class="text-xs font-mono font-bold text-slate-700 mb-2">
-            নম্বর: ${bus.busNumber}
-          </div>
-
-          <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs space-y-1 mb-2.5">
-            <p class="font-bold text-emerald-800 flex items-center gap-1">
-              <span>📍 বর্তমান স্থান:</span>
-              <span class="text-slate-900">${bus.currentLocationNameBn || bus.currentLocationName}</span>
-            </p>
-            <p class="text-slate-700 flex items-center gap-1">
-              <span>⚡ গতিবেগ:</span>
-              <span class="font-mono font-bold text-slate-900">${speedBn} কিমি/ঘণ্টা</span>
-            </p>
-            <p class="text-slate-500 text-[11px] flex items-center gap-1">
-              <span>🎯 জিপিএস একুরেসি:</span>
-              <span>±${toBanglaNumber(bus.accuracy || 12)} মিটার</span>
-            </p>
-            <p class="text-emerald-700 text-[11px] font-medium">
-              <span>🟢 আপডেট: ${formatBanglaTimeAgo(bus.lastUpdated)}</span>
-            </p>
-          </div>
-
-          <div class="text-[10px] text-slate-400 text-center font-medium pt-1 border-t border-slate-100">
-            ওপেন-সোর্স OpenStreetMap • Developed by <strong class="text-emerald-700">Nazmul IT</strong>
-          </div>
-        </div>
-      `;
-
-      busMarker.bindPopup(popupHtml);
-
       busMarker.on('click', () => {
         onSelectBus(bus);
       });
 
       markersLayer.addLayer(busMarker);
-
-      if (isSelected) {
-        // Auto open popup for selected bus if not autoCenter-dragged
-        setTimeout(() => {
-          busMarker.openPopup();
-        }, 100);
-      }
     });
 
     // Handle Auto-Center smoothly
@@ -518,6 +468,12 @@ export const LiveMapModal: React.FC<LiveMapModalProps> = ({
                     <span className="text-slate-400">➔</span>
                     <span className="text-rose-300">{selectedBus.destinationBn}</span>
                   </div>
+                  {(selectedBus.currentLocationNameBn || selectedBus.currentLocationName) && (
+                    <div className="text-[10px] text-slate-300 truncate flex items-center gap-1">
+                      <span>📍</span>
+                      <span className="truncate">{selectedBus.currentLocationNameBn || selectedBus.currentLocationName}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
