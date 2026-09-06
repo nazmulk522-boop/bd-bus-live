@@ -44,24 +44,39 @@ export default function App() {
     }
   });
 
+  // Auto-refresh states
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [autoRefreshSecs, setAutoRefreshSecs] = useState<number>(5);
+
   // Fetch all active buses
-  const fetchActiveBuses = async () => {
+  const fetchActiveBuses = async (isSilent = false) => {
+    if (!isSilent) setIsRefreshing(true);
     try {
       const activeBuses = await fetchLiveBuses();
       setBuses(activeBuses);
+
+      // Keep currently tracked bus in map modal updated with latest location
+      setSelectedBusForMap((prev) => {
+        if (!prev) return null;
+        const matching = activeBuses.find((b) => b.id === prev.id);
+        return matching || prev;
+      });
     } catch (e) {
       console.warn('Live API sync notice.');
     } finally {
       setLoading(false);
+      if (!isSilent) {
+        setTimeout(() => setIsRefreshing(false), 400);
+      }
     }
   };
 
-  // Real-time updates via Firebase Firestore + SSE + local event listeners
+  // Real-time updates via Firebase Firestore + Background Auto-Refresh + SSE + Local listeners
   useEffect(() => {
     // 1. Initial fetch
     fetchActiveBuses();
 
-    // 2. Real-time Firebase Firestore subscription (syncs across ALL devices, browsers, and users worldwide)
+    // 2. Real-time Firebase Firestore subscription (syncs across ALL devices worldwide)
     const unsubscribeFirestore = subscribeToLiveBuses((updatedFleet) => {
       setBuses(updatedFleet);
       setLoading(false);
@@ -73,6 +88,32 @@ export default function App() {
         return matching || prev;
       });
     });
+
+    // 3. Continuous Background Auto-Refresh (Every 5 seconds)
+    // Ensures background sync even if WebSocket / SSE / sleep mode throttles listeners
+    const REFRESH_INTERVAL_SECONDS = 5;
+    let countdown = REFRESH_INTERVAL_SECONDS;
+    const intervalId = setInterval(() => {
+      countdown -= 1;
+      if (countdown <= 0) {
+        fetchActiveBuses(true);
+        countdown = REFRESH_INTERVAL_SECONDS;
+      }
+      setAutoRefreshSecs(countdown);
+    }, 1000);
+
+    // Auto-refresh immediately when user switches back to this tab / unlocks phone
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        countdown = REFRESH_INTERVAL_SECONDS;
+        setAutoRefreshSecs(REFRESH_INTERVAL_SECONDS);
+        fetchActiveBuses(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    window.addEventListener('online', handleVisibilityOrFocus);
 
     const handleLocalUpdate = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
@@ -149,6 +190,10 @@ export default function App() {
     }
 
     return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      window.removeEventListener('online', handleVisibilityOrFocus);
       unsubscribeFirestore();
       window.removeEventListener('bbl_local_buses_updated', handleLocalUpdate);
       if (eventSource) {
@@ -190,12 +235,16 @@ export default function App() {
       // Search match
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchName = bus.companyName.toLowerCase().includes(q) || bus.companyNameBn.includes(q);
-        const matchNumber = bus.busNumber.toLowerCase().includes(q);
-        const matchRoute = bus.routeName.toLowerCase().includes(q) || bus.routeNameBn.includes(q);
+        const matchName =
+          (bus.companyName || '').toLowerCase().includes(q) ||
+          (bus.companyNameBn || '').includes(q);
+        const matchNumber = (bus.busNumber || '').toLowerCase().includes(q);
+        const matchRoute =
+          (bus.routeName || '').toLowerCase().includes(q) ||
+          (bus.routeNameBn || '').includes(q);
         const matchLoc =
-          bus.currentLocationName.toLowerCase().includes(q) ||
-          bus.currentLocationNameBn.includes(q);
+          (bus.currentLocationName || '').toLowerCase().includes(q) ||
+          (bus.currentLocationNameBn || '').includes(q);
 
         if (!matchName && !matchNumber && !matchRoute && !matchLoc) {
           return false;
@@ -273,16 +322,28 @@ export default function App() {
               </div>
             </div>
 
-            {/* Quick Refresh Status */}
-            <div className="flex items-center gap-2 self-start sm:self-auto">
+            {/* Quick Refresh Status & Auto-Refresh Indicator */}
+            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs font-semibold shadow-2xs">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+                </span>
+                <span>অটো রিফ্রেশ</span>
+                <span className="text-[10px] font-mono font-bold bg-emerald-100 px-1.5 py-0.5 rounded text-emerald-700">
+                  {autoRefreshSecs}s
+                </span>
+              </div>
+
               <button
-                onClick={fetchActiveBuses}
-                className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 active:scale-95 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                onClick={() => fetchActiveBuses(false)}
+                disabled={isRefreshing}
+                className="px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 active:scale-95 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-60"
                 title="তাত্ক্ষণিক রিফ্রেশ করুন"
                 id="btn-refresh-buses"
               >
-                <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                <span>রিফ্রেশ</span>
+                <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isRefreshing ? 'animate-spin text-emerald-600' : ''}`} />
+                <span>{isRefreshing ? 'রিফ্রেশ হচ্ছে...' : 'এখনই রিফ্রেশ'}</span>
               </button>
             </div>
           </div>

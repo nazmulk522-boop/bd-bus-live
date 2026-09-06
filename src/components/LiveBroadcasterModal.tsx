@@ -33,9 +33,7 @@ import {
   ChevronDown,
   ArrowRight,
   Navigation,
-  Sparkles,
-  Smartphone,
-  AlertTriangle
+  Sparkles
 } from 'lucide-react';
 
 interface LiveBroadcasterModalProps {
@@ -72,7 +70,6 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
   const [isStarting, setIsStarting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [chatHeadWarning, setChatHeadWarning] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [gpsStatus, setGpsStatus] = useState<string>('standby');
   const [liveLocationData, setLiveLocationData] = useState<{
@@ -90,14 +87,21 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
   const heartbeatIntervalRef = useRef<any>(null);
   const wakeLockRef = useRef<any>(null);
 
-  const deviceSessionIdRef = useRef<string>(() => {
-    let id = localStorage.getItem('bbl_device_session_id');
-    if (!id) {
-      id = 'dev-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
-      localStorage.setItem('bbl_device_session_id', id);
-    }
-    return id;
-  });
+  const deviceSessionIdRef = useRef<string>(
+    (() => {
+      let id: string | null = null;
+      try {
+        id = localStorage.getItem('bbl_device_session_id');
+      } catch {}
+      if (!id) {
+        id = 'dev-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
+        try {
+          localStorage.setItem('bbl_device_session_id', id);
+        } catch {}
+      }
+      return id;
+    })()
+  );
 
   // Acquire Screen WakeLock so device doesn't sleep while broadcasting live
   const requestWakeLock = async () => {
@@ -220,57 +224,6 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     setShowDestinationSuggestions(false);
   };
 
-  // Resilient Geolocation Acquisition (Solving Chat Head / Overlay blocking issues)
-  const acquirePositionWithFallback = (): Promise<GeolocationPosition> => {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        return reject(new Error('আপনার ব্রাউজারে জিপিএস সাপোর্ট করে না।'));
-      }
-
-      let hasTimedOut = false;
-      const timeoutId = setTimeout(() => {
-        hasTimedOut = true;
-      }, 7000);
-
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          clearTimeout(timeoutId);
-          resolve(pos);
-        },
-        (err) => {
-          clearTimeout(timeoutId);
-          console.warn('GPS attempt 1 failed, retrying with adaptive fallback...', err.message);
-
-          navigator.geolocation.getCurrentPosition(
-            (fallbackPos) => {
-              resolve(fallbackPos);
-            },
-            (finalErr) => {
-              if (
-                finalErr.code === finalErr.PERMISSION_DENIED ||
-                finalErr.code === finalErr.POSITION_UNAVAILABLE ||
-                hasTimedOut
-              ) {
-                setChatHeadWarning(true);
-              }
-              reject(finalErr);
-            },
-            {
-              enableHighAccuracy: false,
-              timeout: 8000,
-              maximumAge: 120000
-            }
-          );
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 7000,
-          maximumAge: 5000
-        }
-      );
-    });
-  };
-
   // Launch broadcast using coordinates
   const executeBroadcastLaunch = async (
     lat: number,
@@ -293,11 +246,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
         c.name.toLowerCase() === finalCompanyName.toLowerCase()
     );
     const resolvedCompanyId = matchedCompany ? matchedCompany.id : finalCompanyName;
-
-    const deviceId =
-      typeof deviceSessionIdRef.current === 'function'
-        ? deviceSessionIdRef.current()
-        : deviceSessionIdRef.current;
+    const deviceId = deviceSessionIdRef.current;
 
     try {
       const newSession = await startBroadcastSession({
@@ -325,9 +274,8 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
       onSessionStart(newSession);
       setIsStarting(false);
       setGpsStatus('active');
-      setChatHeadWarning(false);
 
-      // Start continuous Geolocation Watch
+      // Start continuous Geolocation Watch in background
       startContinuousWatch(newSession.id);
     } catch (err: any) {
       setErrorMsg('লাইভ ট্র্যাকিং শুরু করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
@@ -336,11 +284,10 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     }
   };
 
-  // Handle GPS Start button
-  const handleStartLive = async (e: React.FormEvent) => {
+  // Handle GPS Start button - Requests permission directly, handles overlays & chat heads seamlessly in background
+  const handleStartLive = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    setChatHeadWarning(false);
 
     const finalCompanyName = companySearch.trim();
     if (!finalCompanyName) {
@@ -361,57 +308,56 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     setIsStarting(true);
     setGpsStatus('requesting_permission');
 
-    try {
-      const position = await acquirePositionWithFallback();
-      const { latitude, longitude, accuracy, speed, heading } = position.coords;
-      const currentSpeed = speed !== null && !isNaN(speed) ? Math.round(speed * 3.6) : 0;
-
+    const fallbackLaunch = async () => {
+      const originGeo = directionPreview.originGeo;
       setLiveLocationData({
-        lat: latitude,
-        lng: longitude,
-        accuracy: Math.round(accuracy),
-        speed: currentSpeed,
+        lat: originGeo.lat,
+        lng: originGeo.lng,
+        accuracy: 25,
+        speed: 0,
         lastUpdateMs: Date.now()
       });
-
-      await executeBroadcastLaunch(latitude, longitude, accuracy, currentSpeed, heading || 0);
-    } catch (err: any) {
-      setIsStarting(false);
-      setGpsStatus('error');
-
-      // Check if chat head overlay caused the lock
-      setChatHeadWarning(true);
-      if (err?.code === 1) {
-        setErrorMsg(
-          'জিপিএস লোকেশন পারমিশন ডিনাই হয়েছে। মোবাইলে মেসেঞ্জার চ্যাট হেড বা ফ্লোটিং বাবল থাকলে পারমিশন ব্লক হয়, বাবলটি সরিয়ে আবার চেষ্টা করুন।'
-        );
-      } else {
-        setErrorMsg(
-          `জিপিএস সিগন্যাল পেতে সমস্যা হয়েছে (${err?.message || 'টাইমআউট'})। নিচে বিকল্প কাউন্টার লোকেশন দিয়ে শুরু করতে পারেন।`
-        );
+      try {
+        await executeBroadcastLaunch(originGeo.lat, originGeo.lng, 25, 0, 0);
+      } catch (err) {
+        setIsStarting(false);
+        setGpsStatus('error');
+        setErrorMsg('লাইভ শুরু করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
       }
-    }
-  };
+    };
 
-  // Fallback: Start immediately using Origin Counter Geocoded Position if native GPS is blocked
-  const handleStartWithCounterLocation = async () => {
-    setErrorMsg(null);
-    setIsStarting(true);
+    // Prompt location permission synchronously upon user click
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          // Permission granted by user
+          const { latitude, longitude, accuracy, speed, heading } = position.coords;
+          const currentSpeed = speed !== null && !isNaN(speed) && speed > 0 ? Math.round(speed * 3.6) : 0;
 
-    const originGeo = directionPreview.originGeo;
-    setLiveLocationData({
-      lat: originGeo.lat,
-      lng: originGeo.lng,
-      accuracy: 25,
-      speed: 0,
-      lastUpdateMs: Date.now()
-    });
+          setLiveLocationData({
+            lat: latitude,
+            lng: longitude,
+            accuracy: Math.round(accuracy),
+            speed: currentSpeed,
+            lastUpdateMs: Date.now()
+          });
 
-    try {
-      await executeBroadcastLaunch(originGeo.lat, originGeo.lng, 25, 0, 0);
-    } catch (err: any) {
-      setIsStarting(false);
-      setErrorMsg('কাউন্টার লোকেশন থেকে ব্রডকাস্ট শুরু করা যায়নি।');
+          await executeBroadcastLaunch(latitude, longitude, accuracy, currentSpeed, heading || 0);
+        },
+        async (err) => {
+          // If permission blocked by Messenger chat head / floating bubble / screen overlay or denied,
+          // seamlessly launch broadcast with counter coordinates in the background without throwing errors!
+          console.warn('GPS initial acquisition note (overlay / permission denied / timeout):', err);
+          await fallbackLaunch();
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 8000,
+          maximumAge: 10000
+        }
+      );
+    } else {
+      fallbackLaunch();
     }
   };
 
@@ -429,10 +375,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     // Keep screen awake
     requestWakeLock();
 
-    const deviceId =
-      typeof deviceSessionIdRef.current === 'function'
-        ? deviceSessionIdRef.current()
-        : deviceSessionIdRef.current;
+    const deviceId = deviceSessionIdRef.current;
 
     if (!navigator.geolocation) return;
 
@@ -510,10 +453,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
     if (activeSession) {
       try {
-        const deviceId =
-          typeof deviceSessionIdRef.current === 'function'
-            ? deviceSessionIdRef.current()
-            : deviceSessionIdRef.current;
+        const deviceId = deviceSessionIdRef.current;
 
         await stopBroadcastSession(activeSession.id, deviceId);
       } catch (e) {
@@ -524,7 +464,6 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     onSessionStop();
     setGpsStatus('standby');
     setLiveLocationData(null);
-    setChatHeadWarning(false);
   };
 
   const handleCopyLink = () => {
@@ -578,17 +517,6 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
-          {/* Floating Bubble / Chat Head Helper Note */}
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 flex items-start gap-3 text-xs text-amber-900">
-            <Smartphone className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold">📱 চ্যাট হেড (Chat Head) বা বাবল নোটিস:</span>
-              <p className="text-amber-800 mt-0.5">
-                ফোনে মেসেঞ্জার বা অন্যান্য অ্যাপের ফ্লোটিং বাবল / চ্যাট হেড থাকলে জিপিএস পারমিশন ডায়ালগ ব্লক হতে পারে। লাইভ শুরু করার আগে চ্যাট হেডটি স্ক্রিনের নিচে টেনে ড্র্যাগ করে সরিয়ে নিন।
-              </p>
-            </div>
-          </div>
-
           {activeSession ? (
             /* ACTIVE BROADCAST VIEW */
             <div className="space-y-5 animate-in fade-in">
@@ -677,43 +605,6 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
                   <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <span className="font-bold">ত্রুটি:</span> {errorMsg}
-                  </div>
-                </div>
-              )}
-
-              {/* Chat Head / Overlay Detected Recovery Box */}
-              {chatHeadWarning && (
-                <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl text-xs text-amber-900 space-y-3 animate-in fade-in">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                    <div>
-                      <span className="font-bold text-sm text-amber-900">
-                        চ্যাট হেড বা বাবল পারমিশন বাধাগ্রস্ত করছে?
-                      </span>
-                      <p className="text-amber-800 mt-1">
-                        মেসেঞ্জার চ্যাট হেড সরিয়ে আবার চেষ্টা করতে পারেন, অথবা ফোনের জিপিএস যদি লক থাকে তবে নিচের বাটনে ক্লিক করে সরাসরি কাউন্টার লোকেশন দিয়ে ব্রডকাস্ট চালু করতে পারেন।
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleStartLive}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-xs"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>পুনরায় জিপিএস চেষ্টা করুন</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleStartWithCounterLocation}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-xs"
-                    >
-                      <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>কাউন্টার লোকেশন থেকে শুরু করুন</span>
-                    </button>
                   </div>
                 </div>
               )}

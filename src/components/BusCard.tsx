@@ -135,7 +135,7 @@ export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, onShare, isMyB
             </span>
           </div>
 
-          {bus.destinationEta && (
+          {bus.destinationEta && typeof bus.destinationEta === 'object' && bus.destinationEta.etaMinutesMin !== undefined && (
             <div className="flex items-center">
               <span className="w-20 text-slate-400 text-xs sm:text-sm font-medium">গন্তব্য ETA:</span>
               <span className="text-emerald-800 font-semibold text-xs bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
