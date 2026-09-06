@@ -29,14 +29,23 @@ try {
 }
 
 /**
- * Strips undefined properties so Firestore doesn't reject document writes
+ * Strips undefined properties and nested arrays (which Firestore strictly prohibits)
+ * so Firestore never rejects document writes.
  */
 function sanitizeForFirestore(obj: any): any {
   const result: any = {};
   for (const key of Object.keys(obj)) {
-    if (obj[key] !== undefined) {
-      result[key] = obj[key];
+    const val = obj[key];
+    if (val === undefined) continue;
+
+    // Firestore strictly rejects nested arrays (arrays containing arrays like [ [lat, lng] ])
+    if (key === 'routeCoordinates') continue;
+
+    if (Array.isArray(val) && val.length > 0 && Array.isArray(val[0])) {
+      continue;
     }
+
+    result[key] = val;
   }
   return result;
 }
