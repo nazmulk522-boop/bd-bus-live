@@ -887,6 +887,44 @@ export function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lo
   return Math.round(R * c * 10) / 10;
 }
 
+/**
+ * Calculates dynamic vehicle speed in km/h based on distance and elapsed time,
+ * providing accurate speeds even when mobile browsers report raw coords.speed as null or 0.
+ */
+export function calculateDynamicSpeed(
+  prevCoord: { lat: number; lng: number; time: number } | null,
+  newCoord: { lat: number; lng: number; time: number },
+  rawSpeed: number | null | undefined
+): number {
+  if (typeof rawSpeed === 'number' && !isNaN(rawSpeed) && rawSpeed > 0) {
+    return Math.round(rawSpeed * 3.6); // Convert m/s to km/h
+  }
+
+  if (!prevCoord) {
+    return 0;
+  }
+
+  const timeDiffSec = (newCoord.time - prevCoord.time) / 1000;
+  if (timeDiffSec < 1.5 || timeDiffSec > 180) {
+    return 0;
+  }
+
+  const distKm = calculateDistanceKm(prevCoord.lat, prevCoord.lng, newCoord.lat, newCoord.lng);
+  const distMeters = distKm * 1000;
+
+  // Small GPS drift threshold: less than 4-5 meters is stationary / parked
+  if (distMeters < 5) {
+    return 0;
+  }
+
+  const speedKmH = distKm / (timeDiffSec / 3600);
+  if (speedKmH > 140) {
+    return 0;
+  }
+
+  return Math.round(speedKmH);
+}
+
 
 // Find nearest Bangladesh checkpoint and calculate ETA
 export function resolveLocationAndETA(

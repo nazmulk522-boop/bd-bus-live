@@ -13,7 +13,9 @@ import { LiveMapModal } from './components/LiveMapModal';
 import { ShareModal } from './components/ShareModal';
 import { Footer } from './components/Footer';
 import { LiveBusSession } from './types';
-import { fetchLiveBuses, subscribeToLiveBuses } from './services/busService';
+import { fetchLiveBuses, subscribeToLiveBuses, updateBroadcastLocation } from './services/busService';
+import { calculateDynamicSpeed } from './data/bangladeshRoutes';
+import { backgroundLocationEngine } from './services/backgroundLocationEngine';
 import { Radio, RefreshCw, Bus, AlertCircle, Sparkles, MapPin } from 'lucide-react';
 
 export default function App() {
@@ -219,6 +221,16 @@ export default function App() {
     } catch {}
   }, [buses]);
 
+  // Persistent Background Location Broadcasting Engine for Active Bus
+  // Keeps GPS live across the entire phone OS, even when display is turned OFF, locked, or tab backgrounded
+  useEffect(() => {
+    if (myBroadcastSession) {
+      backgroundLocationEngine.start(myBroadcastSession);
+    } else {
+      backgroundLocationEngine.stop();
+    }
+  }, [myBroadcastSession?.id]);
+
   // Filter buses by company, route, search query
   const filteredBuses = useMemo(() => {
     return buses.filter((bus) => {
@@ -275,6 +287,7 @@ export default function App() {
   };
 
   const handleSessionStop = () => {
+    backgroundLocationEngine.stop();
     if (myBroadcastSession) {
       setBuses((prev) => prev.filter((b) => b.id !== myBroadcastSession.id));
     }
@@ -392,6 +405,7 @@ export default function App() {
                   onOpenMap={handleOpenMap}
                   onShare={handleOpenShare}
                   isMyBroadcast={myBroadcastSession?.id === bus.id}
+                  onOpenBroadcaster={() => setIsBroadcastModalOpen(true)}
                 />
               ))}
             </div>

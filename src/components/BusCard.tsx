@@ -8,10 +8,19 @@ interface BusCardProps {
   onOpenMap: (bus: LiveBusSession) => void;
   onShare?: (bus: LiveBusSession) => void;
   isMyBroadcast?: boolean;
+  onOpenBroadcaster?: () => void;
 }
 
-export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, onShare, isMyBroadcast }) => {
+export const BusCard: React.FC<BusCardProps> = ({
+  bus,
+  onOpenMap,
+  onShare,
+  isMyBroadcast,
+  onOpenBroadcaster
+}) => {
   const [copied, setCopied] = useState<boolean>(false);
+
+  const isStale = bus.status === 'live' && (Date.now() - bus.lastUpdated > 2.5 * 60 * 1000); // Signal hasn't updated for > 2.5 mins
 
   const handleQuickCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -47,6 +56,23 @@ export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, onShare, isMyB
   // Status Badge Logic
   const renderStatusBadge = () => {
     if (bus.status === 'live') {
+      if (isStale) {
+        return (
+          <div className="flex flex-col items-end">
+            <span
+              className="px-2 py-1 bg-amber-50 text-amber-700 text-[10px] font-bold rounded uppercase tracking-wider mb-1 flex items-center gap-1 border border-amber-200"
+              title="মোবাইল ফোনের স্ক্রিন লক থাকায় বা ব্যাকগ্রাউন্ডে চলায় জিপিএস সিগন্যাল সাময়িক থেমে আছে"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block"></span>
+              ● সিগন্যাল বিরতি
+            </span>
+            <span className="text-[10px] text-amber-700 font-medium">
+              {formatBanglaTimeAgo(bus.lastUpdated)}
+            </span>
+          </div>
+        );
+      }
+
       return (
         <div className="flex flex-col items-end">
           <span className="px-2 py-1 bg-red-50 text-red-600 text-[10px] font-bold rounded uppercase tracking-wider mb-1 flex items-center gap-1 border border-red-100">
@@ -131,7 +157,11 @@ export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, onShare, isMyB
           <div className="flex items-center">
             <span className="w-20 text-slate-400 text-xs sm:text-sm font-medium">গতি:</span>
             <span className="font-mono text-slate-700 text-xs sm:text-sm font-medium">
-              {bus.speed > 0 ? `${toBanglaNumber(bus.speed)} কিমি/ঘণ্টা` : 'থেমে আছে'}
+              {bus.speed > 0
+                ? `${toBanglaNumber(bus.speed)} কিমি/ঘণ্টা`
+                : isStale
+                ? 'থেমে আছে (সিগন্যাল সাময়িক বন্ধ)'
+                : 'থেমে আছে'}
             </span>
           </div>
 
@@ -144,6 +174,28 @@ export const BusCard: React.FC<BusCardProps> = ({ bus, onOpenMap, onShare, isMyB
             </div>
           )}
         </div>
+
+        {/* My broadcast stale warning banner */}
+        {isMyBroadcast && isStale && (
+          <div className="mb-4 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 leading-tight">
+              <span className="text-base">⚠️</span>
+              <span>আপনার ফোনের জিপিএস ডাটা পাঠানো বন্ধ রয়েছে (স্ক্রিন অন রাখুন)</span>
+            </div>
+            {onOpenBroadcaster && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenBroadcaster();
+                }}
+                className="shrink-0 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold rounded-lg text-[11px] cursor-pointer shadow-xs"
+              >
+                জিপিএস চালু
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action Buttons: View on Map & Share Live Location */}

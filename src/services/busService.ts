@@ -207,16 +207,16 @@ export async function updateBroadcastLocation(payload: {
 }) {
   const localBuses = getLocalLiveBuses();
   const existing = localBuses.find((b) => b.id === payload.sessionId);
+  const routeId = existing?.routeId || '';
   
-  let resolved: any = { locationNameEn: '', locationNameBn: '', nextCheckpoint: '', destinationEta: '' };
-  if (existing) {
-    resolved = resolveLocationAndETA(
-      payload.lat,
-      payload.lng,
-      existing.routeId,
-      payload.speed
-    );
+  const resolved = resolveLocationAndETA(
+    payload.lat,
+    payload.lng,
+    routeId,
+    payload.speed
+  );
 
+  if (existing) {
     const updated: LiveBusSession = {
       ...existing,
       currentLat: payload.lat,
@@ -237,19 +237,21 @@ export async function updateBroadcastLocation(payload: {
   // Sync to Firestore Cloud DB
   try {
     const docRef = doc(db, COLLECTION_NAME, payload.sessionId);
-    const updateData = sanitizeForFirestore({
+    const updateFields: any = {
       currentLat: payload.lat,
       currentLng: payload.lng,
       accuracy: payload.accuracy,
       speed: payload.speed,
       heading: payload.heading,
-      currentLocationName: resolved.locationNameEn,
-      currentLocationNameBn: resolved.locationNameBn,
-      nextCheckpoint: resolved.nextCheckpoint,
-      destinationEta: resolved.destinationEta,
       status: 'live',
       lastUpdated: payload.timestamp || Date.now()
-    });
+    };
+    if (resolved.locationNameEn) updateFields.currentLocationName = resolved.locationNameEn;
+    if (resolved.locationNameBn) updateFields.currentLocationNameBn = resolved.locationNameBn;
+    if (resolved.nextCheckpoint) updateFields.nextCheckpoint = resolved.nextCheckpoint;
+    if (resolved.destinationEta) updateFields.destinationEta = resolved.destinationEta;
+
+    const updateData = sanitizeForFirestore(updateFields);
     await setDoc(docRef, updateData, { merge: true });
   } catch (err) {
     console.error('Firestore location sync error:', err);

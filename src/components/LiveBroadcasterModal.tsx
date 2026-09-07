@@ -5,7 +5,8 @@ import {
   geocodeLocation,
   buildRouteDirection,
   toBanglaNumber,
-  formatBanglaTimeAgo
+  formatBanglaTimeAgo,
+  calculateDynamicSpeed
 } from '../data/bangladeshRoutes';
 import { searchPlaceLocations, PlaceLocation } from '../data/bangladeshPlaces';
 import { LiveBusSession } from '../types';
@@ -14,6 +15,7 @@ import {
   updateBroadcastLocation,
   stopBroadcastSession
 } from '../services/busService';
+import { backgroundLocationEngine } from '../services/backgroundLocationEngine';
 import {
   X,
   Radio,
@@ -79,6 +81,8 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     speed: number;
     lastUpdateMs: number;
   } | null>(null);
+  const [isSyncingNow, setIsSyncingNow] = useState<boolean>(false);
+  const prevCoordsRef = useRef<{ lat: number; lng: number; time: number } | null>(null);
 
   const companyDropdownRef = useRef<HTMLDivElement | null>(null);
   const originDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -275,8 +279,8 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
       setIsStarting(false);
       setGpsStatus('active');
 
-      // Start continuous Geolocation Watch in background
-      startContinuousWatch(newSession.id);
+      // Start background location engine (WakeLock + Background Audio Keep-Alive + Web Worker + Lock-Screen MediaSession)
+      await backgroundLocationEngine.start(newSession);
     } catch (err: any) {
       setErrorMsg('লাইভ ট্র্যাকিং শুরু করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
       setIsStarting(false);
@@ -382,15 +386,22 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     // Helper to push location
     const pushLocation = async (pos: GeolocationPosition) => {
       const { latitude, longitude, accuracy, speed, heading } = pos.coords;
-      const currentSpeed =
-        speed !== null && !isNaN(speed) && speed > 0 ? Math.round(speed * 3.6) : 0;
+      const now = Date.now();
+
+      const dynamicSpeed = calculateDynamicSpeed(
+        prevCoordsRef.current,
+        { lat: latitude, lng: longitude, time: now },
+        speed
+      );
+
+      prevCoordsRef.current = { lat: latitude, lng: longitude, time: now };
 
       setLiveLocationData({
         lat: latitude,
         lng: longitude,
         accuracy: Math.round(accuracy),
-        speed: currentSpeed,
-        lastUpdateMs: Date.now()
+        speed: dynamicSpeed,
+        lastUpdateMs: now
       });
 
       try {
@@ -400,9 +411,9 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
           lat: latitude,
           lng: longitude,
           accuracy: Math.round(accuracy),
-          speed: currentSpeed,
+          speed: dynamicSpeed,
           heading: heading || 0,
-          timestamp: Date.now()
+          timestamp: now
         });
       } catch (e) {
         console.error('Failed to sync location', e);
@@ -461,6 +472,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
       }
     }
 
+    backgroundLocationEngine.stop();
     onSessionStop();
     setGpsStatus('standby');
     setLiveLocationData(null);
@@ -472,6 +484,16 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     navigator.clipboard.writeText(url);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleManualSync = async () => {
+    if (!activeSession) return;
+    setIsSyncingNow(true);
+    requestWakeLock();
+    try {
+      await backgroundLocationEngine.forcePushLocation();
+    } catch {}
+    setTimeout(() => setIsSyncingNow(false), 800);
   };
 
   const formatTimer = (totalSeconds: number) => {
@@ -564,8 +586,37 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
                 </div>
               </div>
 
+              {/* Screen Off / Background Audio Keep-Alive Guidance */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-xs text-emerald-950 space-y-2 text-left shadow-xs">
+                <div className="font-bold flex items-center justify-between text-emerald-900 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span className="font-bold">ডিসপ্লে অফ / স্ক্রিন লক ব্যাকগ্রাউন্ড সচল</span>
+                  </div>
+                  <span className="px-2 py-0.5 bg-emerald-600 text-white text-[10px] font-bold rounded-md tracking-wider">সচল (ACTIVE)</span>
+                </div>
+                <p className="leading-relaxed text-slate-700">
+                  মোবাইলের পাওয়ার বাটন চেপে ডিসপ্লে বন্ধ (স্ক্রিন লক) করলেও অথবা ফোন পকেটে রাখলেও ব্যাকগ্রাউন্ড অডিও সার্ভিস ও জিপিএস ইঞ্জিন সার্বক্ষণিক চালু থাকবে এবং বাসের লাইভ লোকেশন ক্লাউডে প্রতি ৩-৪ সেকেন্ড পর পর আপডেট হতে থাকবে।
+                </p>
+                <div className="pt-1 flex items-center gap-2 text-emerald-800 font-semibold text-[11px] bg-white/85 p-2 rounded-xl border border-emerald-200/60">
+                  <span className="text-sm">🔒</span>
+                  <span>ফোনের লক স্ক্রিনে মিডিয়া প্লেয়ার নোটিফিকেশন দেখে নিশ্চিত হতে পারেন ট্র্যাকিং চলছে।</span>
+                </div>
+              </div>
+
               {/* Action Buttons */}
-              <div className="space-y-3">
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={handleManualSync}
+                  disabled={isSyncingNow}
+                  className="w-full bg-emerald-50 hover:bg-emerald-100 active:scale-98 text-emerald-800 font-bold py-2.5 px-4 rounded-2xl text-xs transition-all border border-emerald-200 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  id="btn-force-gps-sync"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNow ? 'animate-spin text-emerald-600' : 'text-emerald-700'}`} />
+                  <span>{isSyncingNow ? 'জিপিএস থেকে গতি ও অবস্থান নেওয়া হচ্ছে...' : '🔄 এখনই জিপিএস সিগন্যাল রিফ্রেশ পাঠান'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleCopyLink}
