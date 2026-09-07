@@ -272,6 +272,13 @@ export default function App() {
     setIsMapModalOpen(true);
   };
 
+  // Derive the up-to-date bus object for the live map modal from latest buses state
+  const activeBusOnMap = useMemo(() => {
+    if (!selectedBusForMap) return null;
+    const freshBus = buses.find((b) => b.id === selectedBusForMap.id);
+    return freshBus || selectedBusForMap;
+  }, [selectedBusForMap, buses]);
+
   const handleOpenShare = (bus: LiveBusSession) => {
     setSelectedBusForShare(bus);
     setIsShareModalOpen(true);
@@ -426,7 +433,7 @@ export default function App() {
       <LiveMapModal
         isOpen={isMapModalOpen}
         onClose={() => setIsMapModalOpen(false)}
-        selectedBus={selectedBusForMap}
+        selectedBus={activeBusOnMap}
         allBuses={buses}
         onSelectBus={setSelectedBusForMap}
       />
