@@ -14,9 +14,9 @@ import { ShareModal } from './components/ShareModal';
 import { Footer } from './components/Footer';
 import { LiveBusSession } from './types';
 import { fetchLiveBuses, subscribeToLiveBuses, updateBroadcastLocation } from './services/busService';
-import { calculateDynamicSpeed } from './data/bangladeshRoutes';
-import { backgroundLocationEngine } from './services/backgroundLocationEngine';
-import { Radio, RefreshCw, Bus, AlertCircle, Sparkles, MapPin } from 'lucide-react';
+import { calculateDynamicSpeed, toBanglaNumber } from './data/bangladeshRoutes';
+import { backgroundLocationEngine, BroadcastTelemetry } from './services/backgroundLocationEngine';
+import { Radio, RefreshCw, Bus, AlertCircle, Sparkles, MapPin, Wifi } from 'lucide-react';
 
 export default function App() {
   const [buses, setBuses] = useState<LiveBusSession[]>([]);
@@ -45,6 +45,16 @@ export default function App() {
       return null;
     }
   });
+
+  // Real-time telemetry from user's live broadcast
+  const [broadcastTelemetry, setBroadcastTelemetry] = useState<BroadcastTelemetry | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = backgroundLocationEngine.subscribe((t) => {
+      setBroadcastTelemetry(t);
+    });
+    return unsubscribe;
+  }, []);
 
   // Auto-refresh states
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -444,6 +454,52 @@ export default function App() {
         onClose={() => setIsShareModalOpen(false)}
         bus={selectedBusForShare}
       />
+
+      {/* Persistent Floating Broadcaster HUD (Visible when broadcasting in background) */}
+      {myBroadcastSession && !isBroadcastModalOpen && (
+        <div
+          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-40 bg-slate-900/95 text-white rounded-2xl p-3 sm:p-3.5 shadow-2xl border border-emerald-500/40 backdrop-blur-md flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-200"
+          id="floating-broadcaster-hud"
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="relative flex h-3 w-3 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-white truncate">
+                <span>{myBroadcastSession.companyNameBn}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-700/80 font-mono">
+                  {myBroadcastSession.busNumber}
+                </span>
+              </div>
+              <div className="text-[11px] text-emerald-300 truncate flex items-center gap-1">
+                <span>📡 অটো-রিফ্রেশ চলছে</span>
+                <span>•</span>
+                <span>{toBanglaNumber(broadcastTelemetry?.pingsSentCount || 1)}টি সিগন্যাল প্রেরিত</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => setIsBroadcastModalOpen(true)}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
+              id="btn-open-hud-console"
+            >
+              কনসোল
+            </button>
+            <button
+              onClick={handleSessionStop}
+              className="px-2.5 py-1.5 bg-red-600/80 hover:bg-red-700 active:scale-95 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+              id="btn-hud-stop"
+              title="লাইভ বন্ধ করুন"
+            >
+              বন্ধ
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <Footer />

@@ -15,7 +15,7 @@ import {
   updateBroadcastLocation,
   stopBroadcastSession
 } from '../services/busService';
-import { backgroundLocationEngine } from '../services/backgroundLocationEngine';
+import { backgroundLocationEngine, BroadcastTelemetry } from '../services/backgroundLocationEngine';
 import {
   X,
   Radio,
@@ -35,7 +35,8 @@ import {
   ChevronDown,
   ArrowRight,
   Navigation,
-  Sparkles
+  Sparkles,
+  Wifi
 } from 'lucide-react';
 
 interface LiveBroadcasterModalProps {
@@ -79,6 +80,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     lng: number;
     accuracy: number;
     speed: number;
+    heading?: number;
     lastUpdateMs: number;
   } | null>(null);
   const [isSyncingNow, setIsSyncingNow] = useState<boolean>(false);
@@ -144,6 +146,28 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
 
   // Track active session timer
   const [secondsElapsed, setSecondsElapsed] = useState(0);
+
+  // Subscribe to real-time broadcaster telemetry from backgroundLocationEngine
+  const [telemetry, setTelemetry] = useState<BroadcastTelemetry>(() =>
+    backgroundLocationEngine.getTelemetry()
+  );
+
+  useEffect(() => {
+    const unsubscribe = backgroundLocationEngine.subscribe((t) => {
+      setTelemetry(t);
+      if (t.currentLat && t.currentLng) {
+        setLiveLocationData({
+          lat: t.currentLat,
+          lng: t.currentLng,
+          accuracy: t.accuracy,
+          speed: t.speed,
+          heading: t.heading,
+          lastUpdateMs: t.lastPingTimestamp || Date.now()
+        });
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let interval: any;
@@ -557,33 +581,89 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
                 <div className="font-mono text-base font-bold text-emerald-100 mb-2">
                   {activeSession.busNumber}
                 </div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-xl text-xs font-medium text-white mb-4">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-black/20 rounded-xl text-xs font-medium text-white mb-3">
                   <span>{activeSession.originBn}</span>
                   <ArrowRight className="w-3.5 h-3.5 text-emerald-300" />
                   <span>{activeSession.destinationBn}</span>
                 </div>
 
-                {/* Live Stats */}
-                <div className="grid grid-cols-3 gap-2 bg-black/20 backdrop-blur-md rounded-2xl p-3 text-center">
+                {/* Real-time Landmark / Counter Name */}
+                <div className="mb-4 bg-white/15 backdrop-blur-md rounded-xl p-2.5 text-xs text-white border border-white/20 flex items-center justify-center gap-2">
+                  <span className="text-emerald-200">📍 বর্তমানে:</span>
+                  <span className="font-bold text-sm text-yellow-200">
+                    {telemetry.currentLocationNameBn || activeSession.currentLocationNameBn || 'চিহ্নিত করা হচ্ছে...'}
+                  </span>
+                </div>
+
+                {/* Live Stats 4-grid */}
+                <div className="grid grid-cols-4 gap-2 bg-black/20 backdrop-blur-md rounded-2xl p-3 text-center">
                   <div>
                     <div className="text-[10px] text-emerald-200 uppercase font-semibold">গতি</div>
-                    <div className="text-base font-extrabold font-mono mt-0.5">
-                      {toBanglaNumber(liveLocationData?.speed || activeSession.speed || 0)} কিমি/ঘণ্টা
+                    <div className="text-sm sm:text-base font-extrabold font-mono mt-0.5">
+                      {toBanglaNumber(telemetry.speed || liveLocationData?.speed || activeSession.speed || 0)} কিমি/ঘ
                     </div>
                   </div>
-                  <div className="border-x border-white/10">
+                  <div className="border-l border-white/10">
                     <div className="text-[10px] text-emerald-200 uppercase font-semibold">সময়কাল</div>
-                    <div className="text-base font-extrabold font-mono mt-0.5">
+                    <div className="text-sm sm:text-base font-extrabold font-mono mt-0.5">
                       {formatTimer(secondsElapsed)}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-[10px] text-emerald-200 uppercase font-semibold">জিপিএস একুরেসি</div>
-                    <div className="text-base font-extrabold font-mono mt-0.5">
-                      ±{toBanglaNumber(liveLocationData?.accuracy || activeSession.accuracy || 12)} মিটার
+                  <div className="border-l border-white/10">
+                    <div className="text-[10px] text-emerald-200 uppercase font-semibold">একুরেসি</div>
+                    <div className="text-sm sm:text-base font-extrabold font-mono mt-0.5">
+                      ±{toBanglaNumber(telemetry.accuracy || liveLocationData?.accuracy || activeSession.accuracy || 12)} মি.
+                    </div>
+                  </div>
+                  <div className="border-l border-white/10">
+                    <div className="text-[10px] text-emerald-200 uppercase font-semibold">প্রেরিত সিগন্যাল</div>
+                    <div className="text-sm sm:text-base font-extrabold font-mono mt-0.5 text-yellow-300">
+                      {toBanglaNumber(telemetry.pingsSentCount || 1)} টি
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Automatic GPS Refresh & Signal Dispatch Monitor */}
+              <div className="bg-slate-900 text-slate-100 rounded-3xl p-4 border border-slate-800 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-3 w-3">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${telemetry.isTransmitting || isSyncingNow ? 'bg-emerald-400' : 'bg-teal-400'} opacity-75`}></span>
+                      <span className={`relative inline-flex rounded-full h-3 w-3 ${telemetry.isTransmitting || isSyncingNow ? 'bg-emerald-400' : 'bg-emerald-500'}`}></span>
+                    </span>
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>জিপিএস অটো-রিফ্রেশ ও সিগন্যাল ব্রডকাস্ট</span>
+                    </span>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
+                    {telemetry.isTransmitting || isSyncingNow ? 'সিগন্যাল যাচ্ছে...' : 'স্বয়ংক্রিয় সচল'}
+                  </span>
+                </div>
+
+                <div className="bg-slate-800/80 rounded-2xl p-3 border border-slate-700/60 text-xs space-y-2">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-slate-400">স্যাটেলাইট স্থানাঙ্ক:</span>
+                    <span className="font-mono font-bold text-emerald-300">
+                      {telemetry.currentLat ? `${telemetry.currentLat.toFixed(5)}° N, ${telemetry.currentLng.toFixed(5)}° E` : 'জিপিএস লক হচ্ছে...'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-slate-400">সর্বশেষ প্রেরিত সিগন্যাল:</span>
+                    <span className="font-semibold text-slate-200">
+                      {telemetry.lastPingTimestamp ? formatBanglaTimeAgo(telemetry.lastPingTimestamp) : 'এইমাত্র'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-slate-400">অটো-রিফ্রেশ ফ্রিকোয়েন্সি:</span>
+                    <span className="font-bold text-yellow-400">প্রতি ২.৫ সেকেন্ডে অটোমেটিক</span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  💡 আপনার ফোনে জিপিএস সেন্সর স্বয়ংক্রিয়ভাবে প্রতি ২.৫ সেকেন্ডে রিফ্রেশ হয়ে নতুন সিগন্যাল পাঠাচ্ছে। কোনো বাটন চাপার দরকার নেই।
+                </p>
               </div>
 
               {/* Screen Off / Background Audio Keep-Alive Guidance */}

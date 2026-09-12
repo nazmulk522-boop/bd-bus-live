@@ -11,7 +11,26 @@
 
 import { LiveBusSession } from '../types';
 import { updateBroadcastLocation } from './busService';
-import { calculateDynamicSpeed } from '../data/bangladeshRoutes';
+import { calculateDynamicSpeed, resolveLocationAndETA } from '../data/bangladeshRoutes';
+
+export interface BroadcastTelemetry {
+  isRunning: boolean;
+  sessionId: string;
+  companyNameBn: string;
+  busNumber: string;
+  originBn: string;
+  destinationBn: string;
+  pingsSentCount: number;
+  lastPingTimestamp: number;
+  isTransmitting: boolean;
+  gpsActive: boolean;
+  currentLat: number;
+  currentLng: number;
+  accuracy: number;
+  speed: number;
+  heading: number;
+  currentLocationNameBn: string;
+}
 
 // 1 second base64 silent WAV audio loop
 // RIFF header + WAVE fmt + data with zero PCM samples
@@ -30,39 +49,122 @@ class BackgroundLocationEngine {
   private prevCoord: { lat: number; lng: number; time: number } | null = null;
   private fallbackInterval: any = null;
   private lastSuccessTime: number = 0;
+  private pingsSentCount: number = 0;
+  private isTransmitting: boolean = false;
+  private isRequestPending: boolean = false;
+  private lastRequestStartTime: number = 0;
+  private latestCoords: { lat: number; lng: number; accuracy: number; speed: number; heading: number } | null = null;
+  private latestLocationNameBn: string = '';
+  private listeners: Set<(state: BroadcastTelemetry) => void> = new Set();
 
   constructor() {
     try {
-      this.deviceSessionId = localStorage.getItem('bbl_device_session_id') || 'dev-bg-' + Date.now();
+      let saved = localStorage.getItem('bbl_device_session_id');
+      if (!saved) {
+        saved = 'dev-bg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+        localStorage.setItem('bbl_device_session_id', saved);
+      }
+      this.deviceSessionId = saved;
     } catch {
       this.deviceSessionId = 'dev-bg-' + Date.now();
     }
   }
 
   /**
-   * Initializes background audio keep-alive and registers MediaSession
-   * Must be called inside a user gesture (e.g. click on Start Live or Resume)
+   * Subscribe to live broadcaster telemetry (GPS coordinates, pings count, transmission pulse)
+   */
+  public subscribe(listener: (state: BroadcastTelemetry) => void): () => void {
+    this.listeners.add(listener);
+    // Emit immediate current state
+    listener(this.getTelemetry());
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  public getTelemetry(): BroadcastTelemetry {
+    return {
+      isRunning: this.isRunning,
+      sessionId: this.currentSession?.id || '',
+      companyNameBn: this.currentSession?.companyNameBn || '',
+      busNumber: this.currentSession?.busNumber || '',
+      originBn: this.currentSession?.originBn || '',
+      destinationBn: this.currentSession?.destinationBn || '',
+      pingsSentCount: this.pingsSentCount,
+      lastPingTimestamp: this.lastSuccessTime,
+      isTransmitting: this.isTransmitting,
+      gpsActive: !!this.latestCoords,
+      currentLat: this.latestCoords?.lat || this.currentSession?.currentLat || 0,
+      currentLng: this.latestCoords?.lng || this.currentSession?.currentLng || 0,
+      accuracy: this.latestCoords?.accuracy || this.currentSession?.accuracy || 0,
+      speed: this.latestCoords?.speed || this.currentSession?.speed || 0,
+      heading: this.latestCoords?.heading || this.currentSession?.heading || 0,
+      currentLocationNameBn: this.latestLocationNameBn || this.currentSession?.currentLocationNameBn || ''
+    };
+  }
+
+  private notifyListeners() {
+    const telemetry = this.getTelemetry();
+    for (const listener of this.listeners) {
+      try {
+        listener(telemetry);
+      } catch (err) {
+        console.error('[BackgroundEngine] listener error', err);
+      }
+    }
+  }
+
+  /**
+   * Initializes background audio keep-alive, auto-refresh ticker, and GPS sensor
+   * Must be called inside a user gesture or upon session initialization
    */
   public async start(session: LiveBusSession): Promise<boolean> {
+    // If already running for this exact session, just ensure session metadata is synced
+    if (this.isRunning && this.currentSession?.id === session.id) {
+      this.currentSession = session;
+      this.forcePushLocation();
+      this.notifyListeners();
+      return true;
+    }
+
+    // Clean up any previous session state
+    if (this.isRunning) {
+      this.stop();
+    }
+
     this.currentSession = session;
     this.isRunning = true;
+    this.pingsSentCount = 0;
+    this.lastSuccessTime = Date.now();
+    this.latestCoords = {
+      lat: session.currentLat,
+      lng: session.currentLng,
+      accuracy: session.accuracy || 15,
+      speed: session.speed || 0,
+      heading: session.heading || 0
+    };
+    this.latestLocationNameBn = session.currentLocationNameBn || '';
 
-    // 1. Initialize Screen WakeLock (prevents auto-lock while mounted)
+    // 1. Initialize Screen WakeLock (keeps display on if phone mounted on dashboard)
     await this.acquireWakeLock();
 
-    // 2. Start Silent Audio Loop (forces mobile OS to keep browser alive when screen locked)
+    // 2. Start Silent Audio Loop & Lock Screen MediaSession (prevents OS from killing tab on screen lock)
     this.startBackgroundAudio(session);
 
-    // 3. Start Web Worker background ticker (unaffected by main thread timer throttling)
+    // 3. Start Web Worker background ticker (ticks every 2.5 seconds to force GPS auto-refresh)
     this.startWorkerTicker();
 
-    // 4. Start Native Geolocation Watch
+    // 4. Start Continuous Native Geolocation Watch
     this.startGpsWatch();
 
     // 5. Register visibility & focus listeners for instant recovery
     this.attachEventListeners();
 
-    console.log('[BackgroundEngine] Started successfully for session:', session.id);
+    // 6. Trigger immediate initial high-accuracy position query
+    this.forcePushLocation();
+
+    this.notifyListeners();
+    console.log('[BackgroundEngine] Continuous auto-refresh GPS engine started for:', session.id);
     return true;
   }
 
@@ -72,6 +174,9 @@ class BackgroundLocationEngine {
   public stop() {
     this.isRunning = false;
     this.currentSession = null;
+    this.prevCoord = null;
+    this.isRequestPending = false;
+    this.isTransmitting = false;
 
     // Release WakeLock
     if (this.wakeLock) {
@@ -126,11 +231,12 @@ class BackgroundLocationEngine {
     }
 
     this.detachEventListeners();
+    this.notifyListeners();
     console.log('[BackgroundEngine] Stopped');
   }
 
   /**
-   * Sends immediate GPS update on demand
+   * Sends immediate fresh GPS update on demand (forces maximumAge: 0)
    */
   public async forcePushLocation(): Promise<boolean> {
     if (!this.isRunning || !this.currentSession) return false;
@@ -146,8 +252,18 @@ class BackgroundLocationEngine {
           await this.handleNewPosition(pos);
           resolve(true);
         },
-        () => resolve(false),
-        { enableHighAccuracy: true, timeout: 6000, maximumAge: 3000 }
+        () => {
+          // Low accuracy fallback if high accuracy times out
+          navigator.geolocation.getCurrentPosition(
+            async (fallbackPos) => {
+              await this.handleNewPosition(fallbackPos);
+              resolve(true);
+            },
+            () => resolve(false),
+            { enableHighAccuracy: false, timeout: 4000, maximumAge: 5000 }
+          );
+        },
+        { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }
       );
     });
   }
@@ -164,13 +280,13 @@ class BackgroundLocationEngine {
         });
       }
     } catch (e) {
-      console.warn('[BackgroundEngine] WakeLock not supported or denied', e);
+      console.warn('[BackgroundEngine] WakeLock notice:', e);
     }
   }
 
   /**
    * Silent audio loop + MediaSession metadata
-   * This is the core mechanism that keeps Android/iOS from killing the tab when the power button is pressed!
+   * Core mechanism that keeps Android/iOS from suspending JS when screen is locked
    */
   private startBackgroundAudio(session: LiveBusSession) {
     try {
@@ -207,7 +323,7 @@ class BackgroundLocationEngine {
         }
       } catch {}
 
-      // Android Lock Screen Media Notification
+      // Android / iOS Lock Screen Media Notification
       if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: `🚌 ${session.companyNameBn} (${session.busNumber})`,
@@ -217,7 +333,6 @@ class BackgroundLocationEngine {
 
         navigator.mediaSession.playbackState = 'playing';
 
-        // Keep session active on play/pause events from lock screen
         navigator.mediaSession.setActionHandler('play', () => {
           if (this.audioElement) {
             this.audioElement.play().catch(() => {});
@@ -229,7 +344,6 @@ class BackgroundLocationEngine {
         });
 
         navigator.mediaSession.setActionHandler('pause', () => {
-          // Do not pause the audio so tracking is not accidentally interrupted
           if (this.audioElement) {
             this.audioElement.play().catch(() => {});
           }
@@ -241,7 +355,7 @@ class BackgroundLocationEngine {
   }
 
   /**
-   * Start a dedicated Web Worker timer that is not throttled like DOM window.setInterval
+   * Start a dedicated Web Worker timer (runs every 2500ms) unaffected by main thread timer throttling
    */
   private startWorkerTicker() {
     try {
@@ -252,7 +366,7 @@ class BackgroundLocationEngine {
             if (timer) clearInterval(timer);
             timer = setInterval(function() {
               self.postMessage('tick');
-            }, 3500);
+            }, 2500);
           } else if (e.data === 'stop') {
             if (timer) clearInterval(timer);
             timer = null;
@@ -278,37 +392,54 @@ class BackgroundLocationEngine {
         if (this.isRunning) {
           this.tickLocation();
         }
-      }, 3500);
+      }, 2500);
     }
   }
 
   /**
-   * Periodic location tick from worker or interval
+   * Periodic active location tick from worker or interval (forces maximumAge: 0)
    */
   private tickLocation() {
     if (!this.isRunning || !this.currentSession) return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
-    // Check if watchPosition hasn't fired in the last 6 seconds
-    const timeSinceLastSuccess = Date.now() - this.lastSuccessTime;
-    if (timeSinceLastSuccess > 5000) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => this.handleNewPosition(pos),
-        () => {
-          // Fallback to network location if high accuracy GPS times out
-          navigator.geolocation.getCurrentPosition(
-            (pos) => this.handleNewPosition(pos),
-            () => {},
-            { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
-          );
-        },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 4000 }
-      );
+    // Prevent duplicate overlapping requests if hardware lock is still pending
+    if (this.isRequestPending) {
+      if (Date.now() - this.lastRequestStartTime > 5000) {
+        this.isRequestPending = false;
+      } else {
+        return;
+      }
     }
+
+    this.isRequestPending = true;
+    this.lastRequestStartTime = Date.now();
+
+    // Actively query device GPS sensor without using any cached position (maximumAge: 0)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this.isRequestPending = false;
+        this.handleNewPosition(pos);
+      },
+      (err) => {
+        // High accuracy timed out; immediately fall back to network location
+        navigator.geolocation.getCurrentPosition(
+          (fallbackPos) => {
+            this.isRequestPending = false;
+            this.handleNewPosition(fallbackPos);
+          },
+          () => {
+            this.isRequestPending = false;
+          },
+          { enableHighAccuracy: false, timeout: 3500, maximumAge: 4000 }
+        );
+      },
+      { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
+    );
   }
 
   /**
-   * Continuous Geolocation Watch
+   * Continuous Geolocation Watch (hardware push listener)
    */
   private startGpsWatch() {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
@@ -320,12 +451,12 @@ class BackgroundLocationEngine {
     this.watchId = navigator.geolocation.watchPosition(
       (pos) => this.handleNewPosition(pos),
       (err) => {
-        console.warn('[BackgroundEngine] watchPosition warning:', err.message);
+        console.warn('[BackgroundEngine] watchPosition notice:', err.message);
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 2500,
-        timeout: 10000
+        maximumAge: 0,
+        timeout: 8000
       }
     );
   }
@@ -348,6 +479,23 @@ class BackgroundLocationEngine {
     );
 
     this.prevCoord = { lat: latitude, lng: longitude, time: now };
+    this.latestCoords = {
+      lat: latitude,
+      lng: longitude,
+      accuracy: Math.round(accuracy || 15),
+      speed: dynamicSpeed,
+      heading: heading || 0
+    };
+
+    // Immediate landmark resolution
+    const routeId = this.currentSession.routeId || '';
+    const resolved = resolveLocationAndETA(latitude, longitude, routeId, dynamicSpeed);
+    if (resolved.locationNameBn) {
+      this.latestLocationNameBn = resolved.locationNameBn;
+    }
+
+    this.isTransmitting = true;
+    this.notifyListeners();
 
     try {
       await updateBroadcastLocation({
@@ -360,8 +508,12 @@ class BackgroundLocationEngine {
         heading: heading || 0,
         timestamp: now
       });
+      this.pingsSentCount++;
     } catch (err) {
       console.warn('[BackgroundEngine] updateBroadcastLocation error:', err);
+    } finally {
+      this.isTransmitting = false;
+      this.notifyListeners();
     }
   }
 
@@ -389,6 +541,10 @@ class BackgroundLocationEngine {
 
   public getIsRunning(): boolean {
     return this.isRunning;
+  }
+
+  public getPingsCount(): number {
+    return this.pingsSentCount;
   }
 }
 
