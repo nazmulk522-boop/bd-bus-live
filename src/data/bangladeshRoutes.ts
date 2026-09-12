@@ -1,4 +1,5 @@
 import { BusCompany, BusRoute, RouteCheckpoint } from '../types';
+import { BD_ALL_PLACES } from './bangladeshPlaces';
 
 export const BUS_COMPANIES: BusCompany[] = [
   // Major Highway, Inter-District & AC/Non-AC Coaches
@@ -665,31 +666,235 @@ export const BD_POPULAR_STOPS_COUNTERS: BDPlaceStop[] = [
   { id: 'netrokona', nameBn: 'নেত্রকোণা (বাস টার্মিনাল)', nameEn: 'Netrokona (Bus Terminal)', districtBn: 'নেত্রকোণা', districtEn: 'Netrokona', lat: 24.8800, lng: 90.7200, category: 'district' }
 ];
 
+// Comprehensive Geographic Landmark structure
+export interface BDGeographicLandmark {
+  id: string;
+  name: string;
+  nameBn: string;
+  districtBn?: string;
+  districtEn?: string;
+  category?: string;
+  lat: number;
+  lng: number;
+}
+
+// Unified repository of all geographic landmarks in Bangladesh (all 64 districts, upazilas, terminals & counters)
+export const ALL_BD_LANDMARKS: BDGeographicLandmark[] = (() => {
+  const list: BDGeographicLandmark[] = [];
+  const seenCoords = new Set<string>();
+
+  // 1. Add all 184 places covering every district and upazila in Bangladesh
+  for (const place of BD_ALL_PLACES) {
+    const key = `${place.lat.toFixed(3)},${place.lng.toFixed(3)}`;
+    if (!seenCoords.has(key)) {
+      seenCoords.add(key);
+      list.push({
+        id: `bd-${place.districtEn.toLowerCase()}-${place.nameEn.toLowerCase()}`.replace(/[^a-z0-9]/g, '-'),
+        name: place.nameEn,
+        nameBn: place.nameBn,
+        districtBn: place.districtBn,
+        districtEn: place.districtEn,
+        category: place.category,
+        lat: place.lat,
+        lng: place.lng
+      });
+    }
+  }
+
+  // 2. Add all specific bus stops & major highway counters
+  for (const stop of BD_POPULAR_STOPS_COUNTERS) {
+    const key = `${stop.lat.toFixed(3)},${stop.lng.toFixed(3)}`;
+    if (!seenCoords.has(key)) {
+      seenCoords.add(key);
+      list.push({
+        id: stop.id,
+        name: stop.nameEn,
+        nameBn: stop.nameBn,
+        districtBn: stop.districtBn,
+        category: stop.category,
+        lat: stop.lat,
+        lng: stop.lng
+      });
+    }
+  }
+
+  // 3. Add all checkpoints from predefined bus routes
+  for (const route of BUS_ROUTES) {
+    for (const cp of route.checkpoints) {
+      const key = `${cp.lat.toFixed(3)},${cp.lng.toFixed(3)}`;
+      if (!seenCoords.has(key)) {
+        seenCoords.add(key);
+        list.push({
+          id: cp.id,
+          name: cp.name,
+          nameBn: cp.nameBn,
+          lat: cp.lat,
+          lng: cp.lng,
+          category: 'counter'
+        });
+      }
+    }
+  }
+
+  return list;
+})();
+
 // Smart Geocoding helper for Bangladesh Places and Counters
 export function geocodeLocation(query: string): BDPlaceStop | null {
   if (!query || !query.trim()) return null;
   const q = query.toLowerCase().trim();
 
-  // 1. Direct ID or Name Match
-  const exact = BD_POPULAR_STOPS_COUNTERS.find(
+  // 1. Exact match in BD_ALL_PLACES
+  const exactPlace = BD_ALL_PLACES.find(
+    (p) =>
+      p.nameBn.toLowerCase() === q ||
+      p.nameEn.toLowerCase() === q ||
+      p.districtBn.toLowerCase() === q ||
+      p.districtEn.toLowerCase() === q
+  );
+  if (exactPlace) {
+    return {
+      id: `place-${exactPlace.nameEn.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      nameBn: exactPlace.nameBn,
+      nameEn: exactPlace.nameEn,
+      districtBn: exactPlace.districtBn,
+      districtEn: exactPlace.districtEn,
+      lat: exactPlace.lat,
+      lng: exactPlace.lng,
+      category: exactPlace.category === 'counter' ? 'counter' : 'district'
+    };
+  }
+
+  // 2. Partial match in BD_ALL_PLACES
+  const partialPlace = BD_ALL_PLACES.find(
+    (p) =>
+      p.nameBn.toLowerCase().includes(q) ||
+      q.includes(p.nameBn.toLowerCase()) ||
+      p.nameEn.toLowerCase().includes(q) ||
+      q.includes(p.nameEn.toLowerCase()) ||
+      (q.length >= 3 && (p.districtBn.toLowerCase().includes(q) || q.includes(p.districtBn.toLowerCase())))
+  );
+  if (partialPlace) {
+    return {
+      id: `place-${partialPlace.nameEn.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      nameBn: partialPlace.nameBn,
+      nameEn: partialPlace.nameEn,
+      districtBn: partialPlace.districtBn,
+      districtEn: partialPlace.districtEn,
+      lat: partialPlace.lat,
+      lng: partialPlace.lng,
+      category: partialPlace.category === 'counter' ? 'counter' : 'district'
+    };
+  }
+
+  // 3. Search in BD_POPULAR_STOPS_COUNTERS
+  const popMatch = BD_POPULAR_STOPS_COUNTERS.find(
     (s) =>
       s.id.toLowerCase() === q ||
       s.nameBn.toLowerCase() === q ||
-      s.nameEn.toLowerCase() === q ||
-      s.districtBn.toLowerCase() === q ||
-      s.districtEn.toLowerCase() === q
-  );
-  if (exact) return exact;
-
-  // 2. Partial Substring Match
-  const partial = BD_POPULAR_STOPS_COUNTERS.find(
-    (s) =>
       s.nameBn.toLowerCase().includes(q) ||
+      q.includes(s.nameBn.toLowerCase()) ||
       s.nameEn.toLowerCase().includes(q) ||
       s.districtBn.toLowerCase().includes(q) ||
-      s.districtEn.toLowerCase().includes(q)
+      q.includes(s.districtBn.toLowerCase())
   );
-  return partial || null;
+  if (popMatch) return popMatch;
+
+  // 4. Search in Route Checkpoints
+  for (const route of BUS_ROUTES) {
+    for (const cp of route.checkpoints) {
+      if (
+        cp.nameBn.toLowerCase().includes(q) ||
+        q.includes(cp.nameBn.toLowerCase()) ||
+        cp.name.toLowerCase().includes(q)
+      ) {
+        return {
+          id: cp.id,
+          nameBn: cp.nameBn,
+          nameEn: cp.name,
+          districtBn: route.destinationBn,
+          districtEn: route.destination,
+          lat: cp.lat,
+          lng: cp.lng,
+          category: 'counter'
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+// Fallback inference for custom search queries when exact geocoding misses
+function inferDefaultLocation(
+  text: string,
+  isOrigin: boolean
+): BDPlaceStop {
+  const t = (text || '').toLowerCase();
+  if (t.includes('টেকনাফ')) {
+    return { id: 'teknaf', lat: 20.8633, lng: 92.2980, nameBn: 'কক্সবাজার (টেকনাফ)', nameEn: "Cox's Bazar (Teknaf)", districtBn: 'কক্সবাজার', districtEn: "Cox's Bazar", category: 'counter' };
+  }
+  if (t.includes('কক্সবাজার') || t.includes('কলাতলী')) {
+    return { id: 'coxsbazar', lat: 21.4272, lng: 91.9800, nameBn: 'কক্সবাজার (কলাতলী)', nameEn: "Cox's Bazar (Kolatoli)", districtBn: 'কক্সবাজার', districtEn: "Cox's Bazar", category: 'terminal' };
+  }
+  if (t.includes('চকোরিয়া') || t.includes('চকরিয়া')) {
+    return { id: 'chakaria', lat: 21.7865, lng: 92.0780, nameBn: 'কক্সবাজার (চকোরিয়া)', nameEn: 'Chakaria', districtBn: 'কক্সবাজার', districtEn: "Cox's Bazar", category: 'counter' };
+  }
+  if (t.includes('চট্টগ্রাম') || t.includes('অলংকার') || t.includes('একে খান') || t.includes('দামপাড়া')) {
+    return { id: 'chattogram-alankar', lat: 22.3789, lng: 91.7850, nameBn: 'চট্টগ্রাম (অলংকার মোড় / একে খান)', nameEn: 'Chattogram (Alankar)', districtBn: 'চট্টগ্রাম', districtEn: 'Chattogram', category: 'counter' };
+  }
+  if (t.includes('ফেনী') || t.includes('মহিপাল')) {
+    return { id: 'feni-mohipal', lat: 23.0186, lng: 91.3966, nameBn: 'ফেনী (মহিপাল হাইওয়ে বাসস্ট্যান্ড)', nameEn: 'Feni (Mohipal)', districtBn: 'ফেনী', districtEn: 'Feni', category: 'highway_junction' };
+  }
+  if (t.includes('কুমিল্লা') || t.includes('পদুয়ার বাজার') || t.includes('শাসনগাছা')) {
+    return { id: 'cumilla-paduar', lat: 23.4607, lng: 91.1809, nameBn: 'কুমিল্লা (শাসনগাছা / পদুয়ার বাজার বিশ্বরোড)', nameEn: 'Cumilla (Paduar Bazar)', districtBn: 'কুমিল্লা', districtEn: 'Cumilla', category: 'highway_junction' };
+  }
+  if (t.includes('যাত্রাবাড়ী') || t.includes('চিটাগাং রোড')) {
+    return { id: 'dhaka-jatrabari', lat: 23.7088, lng: 90.4410, nameBn: 'ঢাকা (যাত্রাবাড়ী / চিটাগাং রোড)', nameEn: 'Dhaka (Jatrabari / Chittagong Rd)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'counter' };
+  }
+  if (t.includes('সায়েদাবাদ')) {
+    return { id: 'dhaka-sayedabad', lat: 23.7145, lng: 90.4285, nameBn: 'ঢাকা (সায়েদাবাদ বাস টার্মিনাল)', nameEn: 'Dhaka (Sayedabad)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'terminal' };
+  }
+  if (t.includes('মহাখালী')) {
+    return { id: 'dhaka-mohakhali', lat: 23.7778, lng: 90.4005, nameBn: 'ঢাকা (মহাখালী বাস টার্মিনাল)', nameEn: 'Dhaka (Mohakhali)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'terminal' };
+  }
+  if (t.includes('গাবতলী')) {
+    return { id: 'dhaka-gabtoli', lat: 23.7846, lng: 90.3475, nameBn: 'ঢাকা (গাবতলী বাস টার্মিনাল)', nameEn: 'Dhaka (Gabtoli)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'terminal' };
+  }
+  if (t.includes('উত্তরা') || t.includes('আবদুল্লাহপুর')) {
+    return { id: 'dhaka-abdullahpur', lat: 23.8824, lng: 90.3995, nameBn: 'ঢাকা (আবদুল্লাহপুর / উত্তরা)', nameEn: 'Dhaka (Abdullahpur)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'counter' };
+  }
+  if (t.includes('সিলেট') || t.includes('কদমতলী')) {
+    return { id: 'sylhet-kadamtali', lat: 24.8825, lng: 91.8685, nameBn: 'সিলেট (কদমতলী কেন্দ্রীয় টার্মিনাল)', nameEn: 'Sylhet (Kadamtali)', districtBn: 'সিলেট', districtEn: 'Sylhet', category: 'terminal' };
+  }
+  if (t.includes('রাজশাহী') || t.includes('শিরোইল')) {
+    return { id: 'rajshahi-shiroil', lat: 24.3745, lng: 88.6042, nameBn: 'রাজশাহী (শিরোইল বাস টার্মিনাল)', nameEn: 'Rajshahi (Shiroil)', districtBn: 'রাজশাহী', districtEn: 'Rajshahi', category: 'terminal' };
+  }
+  if (t.includes('বগুড়া') || t.includes('চারমাথা')) {
+    return { id: 'bogra-charmatha', lat: 24.8510, lng: 89.3450, nameBn: 'বগুড়া (চারমাথা কেন্দ্রীয় বাস টার্মিনাল)', nameEn: 'Bogra (Charmatha)', districtBn: 'বগুড়া', districtEn: 'Bogra', category: 'terminal' };
+  }
+  if (t.includes('রংপুর') || t.includes('কামারপাড়া')) {
+    return { id: 'rangpur-kamarpada', lat: 25.7439, lng: 89.2752, nameBn: 'রংপুর (কামারপাড়া ঢাকা বাসস্ট্যান্ড)', nameEn: 'Rangpur (Kamarpada)', districtBn: 'রংপুর', districtEn: 'Rangpur', category: 'terminal' };
+  }
+  if (t.includes('খুলনা') || t.includes('সোনাডাঙ্গা')) {
+    return { id: 'khulna-sonadanga', lat: 22.8200, lng: 89.5400, nameBn: 'খুলনা (সোনাডাঙ্গা কেন্দ্রীয় বাস টার্মিনাল)', nameEn: 'Khulna (Sonadanga)', districtBn: 'খুলনা', districtEn: 'Khulna', category: 'terminal' };
+  }
+  if (t.includes('বরিশাল') || t.includes('নথুল্লাবাদ')) {
+    return { id: 'barishal-nathullabad', lat: 22.7125, lng: 90.3540, nameBn: 'বরিশাল (নথুল্লাবাদ কেন্দ্রীয় বাস টার্মিনাল)', nameEn: 'Barishal (Nathullabad)', districtBn: 'বরিশাল', districtEn: 'Barishal', category: 'terminal' };
+  }
+  if (t.includes('ময়মনসিংহ') || t.includes('মাসকান্দা')) {
+    return { id: 'mymensingh-maskanda', lat: 24.7471, lng: 90.4203, nameBn: 'ময়মনসিংহ (মাসকান্দা টার্মিনাল)', nameEn: 'Mymensingh (Maskanda)', districtBn: 'ময়মনসিংহ', districtEn: 'Mymensingh', category: 'terminal' };
+  }
+  if (t.includes('সিরাজগঞ্জ')) {
+    return { id: 'sirajganj-central', lat: 24.4534, lng: 89.7008, nameBn: 'সিরাজগঞ্জ (সেন্ট্রাল বাস টার্মিনাল)', nameEn: 'Sirajganj (Central)', districtBn: 'সিরাজগঞ্জ', districtEn: 'Sirajganj', category: 'terminal' };
+  }
+
+  // Default coordinate if neither exact nor keyword matched
+  if (isOrigin) {
+    return { id: 'default-origin', lat: 23.7847, lng: 90.3524, nameBn: text || 'ঢাকা (গাবতলী)', nameEn: text || 'Dhaka (Gabtoli)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'counter' };
+  } else {
+    return { id: 'default-dest', lat: 23.7088, lng: 90.4410, nameBn: text || 'ঢাকা (যাত্রাবাড়ী / চিটাগাং রোড)', nameEn: text || 'Dhaka (Jatrabari)', districtBn: 'ঢাকা', districtEn: 'Dhaka', category: 'counter' };
+  }
 }
 
 // Build smart Direction between any Origin Stop and Destination Stop
@@ -709,34 +914,36 @@ export function buildRouteDirection(
   estimatedMinutes: number;
   checkpoints: RouteCheckpoint[];
 } {
-  const originGeoMatch = geocodeLocation(originStopText) || {
-    id: 'custom-orig',
-    nameBn: originStopText || 'ঢাকা (শুরু কাউন্টার)',
-    nameEn: originStopText || 'Origin Stop',
-    districtBn: 'ঢাকা',
-    districtEn: 'Dhaka',
-    lat: 23.7847, // Default Gabtoli
-    lng: 90.3524,
-    category: 'counter' as const
-  };
+  const originGeoMatch = geocodeLocation(originStopText) || inferDefaultLocation(originStopText, true);
+  const destinationGeoMatch = geocodeLocation(destinationStopText) || inferDefaultLocation(destinationStopText, false);
 
-  const destinationGeoMatch = geocodeLocation(destinationStopText) || {
-    id: 'custom-dest',
-    nameBn: destinationStopText || 'গন্তব্য কাউন্টার',
-    nameEn: destinationStopText || 'Destination Stop',
-    districtBn: destinationStopText,
-    districtEn: destinationStopText,
-    lat: 24.4534, // Default Sirajganj
-    lng: 89.7000,
-    category: 'counter' as const
-  };
-
-  // Check if we have an existing predefined highway route matching origin & destination
+  // 1. Forward match with predefined highway routes
   const matchedRoute = BUS_ROUTES.find((r) => {
-    const oMatch = r.originBn.includes(originGeoMatch.districtBn) || originGeoMatch.nameBn.includes(r.originBn) || r.originBn.includes('ঢাকা');
-    const dMatch = r.destinationBn.includes(destinationGeoMatch.districtBn) || destinationGeoMatch.nameBn.includes(r.destinationBn);
+    const oMatch =
+      originGeoMatch.nameBn.includes(r.originBn) ||
+      r.originBn.includes(originGeoMatch.districtBn) ||
+      originGeoMatch.districtBn.includes(r.originBn);
+    const dMatch =
+      destinationGeoMatch.nameBn.includes(r.destinationBn) ||
+      r.destinationBn.includes(destinationGeoMatch.districtBn) ||
+      destinationGeoMatch.districtBn.includes(r.destinationBn);
     return oMatch && dMatch;
   });
+
+  // 2. Reverse match with predefined highway routes (e.g. Cox's Bazar -> Dhaka uses reversed dhaka-coxsbazar)
+  const reverseMatchedRoute = !matchedRoute
+    ? BUS_ROUTES.find((r) => {
+        const oMatch =
+          originGeoMatch.nameBn.includes(r.destinationBn) ||
+          r.destinationBn.includes(originGeoMatch.districtBn) ||
+          originGeoMatch.districtBn.includes(r.destinationBn);
+        const dMatch =
+          destinationGeoMatch.nameBn.includes(r.originBn) ||
+          r.originBn.includes(destinationGeoMatch.districtBn) ||
+          destinationGeoMatch.districtBn.includes(r.originBn);
+        return oMatch && dMatch;
+      })
+    : null;
 
   if (matchedRoute) {
     return {
@@ -751,6 +958,28 @@ export function buildRouteDirection(
       totalDistanceKm: matchedRoute.totalDistanceKm,
       estimatedMinutes: matchedRoute.estimatedMinutes,
       checkpoints: matchedRoute.checkpoints
+    };
+  }
+
+  if (reverseMatchedRoute) {
+    const reversedPath = [...reverseMatchedRoute.pathCoordinates].reverse();
+    const reversedCheckpoints = [...reverseMatchedRoute.checkpoints].reverse().map((cp, idx) => ({
+      ...cp,
+      sequence: idx + 1
+    }));
+
+    return {
+      routeId: `${reverseMatchedRoute.id}-return`,
+      routeNameEn: `${originGeoMatch.nameEn} - ${destinationGeoMatch.nameEn}`,
+      routeNameBn: `${originGeoMatch.nameBn} → ${destinationGeoMatch.nameBn}`,
+      originBn: originGeoMatch.nameBn,
+      destinationBn: destinationGeoMatch.nameBn,
+      originGeo: { lat: originGeoMatch.lat, lng: originGeoMatch.lng, nameBn: originGeoMatch.nameBn },
+      destinationGeo: { lat: destinationGeoMatch.lat, lng: destinationGeoMatch.lng, nameBn: destinationGeoMatch.nameBn },
+      pathCoordinates: reversedPath,
+      totalDistanceKm: reverseMatchedRoute.totalDistanceKm,
+      estimatedMinutes: reverseMatchedRoute.estimatedMinutes,
+      checkpoints: reversedCheckpoints
     };
   }
 
@@ -950,46 +1179,57 @@ export function resolveLocationAndETA(
     etaMinutesMax: number;
   };
 } {
-  const route = BUS_ROUTES.find((r) => r.id === routeId);
-
-  // Check all known checkpoints across all routes to find closest landmark
-  let closestCheckpoint: { name: string; nameBn: string; distance: number } | null = null;
+  // 1. Find nearest Bangladesh landmark among ALL 64 districts, upazilas, and bus counters
+  let closestLandmark: BDGeographicLandmark | null = null;
   let minDistance = Infinity;
 
-  const allCheckpoints = BUS_ROUTES.flatMap((r) => r.checkpoints);
-  for (const cp of allCheckpoints) {
-    const d = calculateDistanceKm(lat, lng, cp.lat, cp.lng);
+  for (const lm of ALL_BD_LANDMARKS) {
+    const d = calculateDistanceKm(lat, lng, lm.lat, lm.lng);
     if (d < minDistance) {
       minDistance = d;
-      closestCheckpoint = { name: cp.name, nameBn: cp.nameBn, distance: d };
+      closestLandmark = lm;
     }
   }
 
-  let locationNameBn = 'হাইওয়ে সংযোগ';
-  let locationNameEn = 'Highway Route';
+  let locationNameBn = 'বাংলাদেশ হাইওয়ে';
+  let locationNameEn = 'Bangladesh Highway';
 
-  if (closestCheckpoint) {
-    if (closestCheckpoint.distance < 1.5) {
-      locationNameBn = closestCheckpoint.nameBn;
-      locationNameEn = closestCheckpoint.name;
+  if (closestLandmark) {
+    const distBn = toBanglaNumber(Math.round(minDistance));
+    if (minDistance <= 0.8) {
+      locationNameBn = closestLandmark.nameBn;
+      locationNameEn = closestLandmark.name;
+    } else if (minDistance <= 3.0) {
+      locationNameBn = `${closestLandmark.nameBn} (কাছে)`;
+      locationNameEn = `Near ${closestLandmark.name}`;
+    } else if (minDistance <= 12.0) {
+      locationNameBn = `${closestLandmark.nameBn}-এর কাছে (${distBn} কিমি)`;
+      locationNameEn = `Near ${closestLandmark.name} (${Math.round(minDistance)} km)`;
     } else {
-      locationNameBn = `${closestCheckpoint.nameBn}-এর কাছে (${closestCheckpoint.distance} কিমি)`;
-      locationNameEn = `Near ${closestCheckpoint.name} (${closestCheckpoint.distance} km)`;
+      locationNameBn = `${closestLandmark.nameBn} হাইওয়ে সংযোগ (${distBn} কিমি)`;
+      locationNameEn = `${closestLandmark.name} Highway (${Math.round(minDistance)} km)`;
     }
   }
 
-  if (!route) {
+  // 2. Route Checkpoints & ETA resolution
+  const isReturn = routeId.endsWith('-return');
+  const baseRouteId = isReturn ? routeId.replace('-return', '') : routeId;
+  const route = BUS_ROUTES.find((r) => r.id === baseRouteId);
+
+  if (!route || !route.checkpoints || route.checkpoints.length === 0) {
     return { locationNameEn, locationNameBn };
   }
 
-  // Find next checkpoint along the selected route
-  // We determine where the bus is along the sequence
-  let nextCp: (typeof route.checkpoints)[0] | null = null;
+  const effectiveCheckpoints = isReturn
+    ? [...route.checkpoints].reverse().map((cp, idx) => ({ ...cp, sequence: idx + 1 }))
+    : route.checkpoints;
+
+  // Find nearest checkpoint along this route
   let minCpDist = Infinity;
   let currentCpIndex = 0;
 
-  for (let i = 0; i < route.checkpoints.length; i++) {
-    const cp = route.checkpoints[i];
+  for (let i = 0; i < effectiveCheckpoints.length; i++) {
+    const cp = effectiveCheckpoints[i];
     const dist = calculateDistanceKm(lat, lng, cp.lat, cp.lng);
     if (dist < minCpDist) {
       minCpDist = dist;
@@ -997,10 +1237,11 @@ export function resolveLocationAndETA(
     }
   }
 
-  if (currentCpIndex < route.checkpoints.length - 1) {
-    nextCp = route.checkpoints[currentCpIndex + 1];
+  let nextCp: (typeof effectiveCheckpoints)[0] | null = null;
+  if (currentCpIndex < effectiveCheckpoints.length - 1) {
+    nextCp = effectiveCheckpoints[currentCpIndex + 1];
   } else {
-    nextCp = route.checkpoints[route.checkpoints.length - 1];
+    nextCp = effectiveCheckpoints[effectiveCheckpoints.length - 1];
   }
 
   const effectiveSpeed = Math.max(currentSpeedKmH > 10 ? currentSpeedKmH : 40, 30);
@@ -1021,7 +1262,7 @@ export function resolveLocationAndETA(
     };
   }
 
-  const destCp = route.checkpoints[route.checkpoints.length - 1];
+  const destCp = effectiveCheckpoints[effectiveCheckpoints.length - 1];
   const distToDest = Math.max(2, calculateDistanceKm(lat, lng, destCp.lat, destCp.lng));
   const destBaseMinutes = Math.round((distToDest / effectiveSpeed) * 60);
   const destMinMins = Math.max(10, Math.round(destBaseMinutes * 0.9));

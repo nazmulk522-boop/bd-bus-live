@@ -239,7 +239,7 @@ export const LiveBroadcasterModal: React.FC<LiveBroadcasterModalProps> = ({
     const finalCompanyName = companySearch.trim();
     const finalBusNum = busNumber.trim();
     const finalOrigin = originSearch.trim() || 'ঢাকা (গাবতলী)';
-    const finalDestination = destinationSearch.trim() || 'সিরাজগঞ্জ';
+    const finalDestination = destinationSearch.trim() || 'চট্টগ্রাম (অলংকার মোড় / একে খান)';
 
     // Calculate smart direction
     const directionData = buildRouteDirection(finalOrigin, finalDestination);
